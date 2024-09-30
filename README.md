@@ -1,1 +1,1 @@
-
+Currently, the source code is under review by the Intellectual Property Department (IPD) for brand verification and licensing. After the review is completed, a README file will be provided, including requirements for environment setup and descriptions for training and testing usage.
