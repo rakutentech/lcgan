@@ -1,5 +1,6 @@
 # Linearly Controllable GAN: Unsupervised Feature Categorization and Decomposition for Image Generation and Manipulation 
-## [Paper](https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/00540.pdf)
+This is the official repository of PCT-Net (CVPR2023) by [Rakuten Institute of Technology, Rakuten Group, Inc.](https://rit.rakuten.com/)
+- [Paper](https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/00540.pdf)
 
 If you find our code or paper useful, please cite as
 
