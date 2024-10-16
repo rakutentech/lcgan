@@ -10,4 +10,8 @@
     <img src="assets/identity.gif" alt="Identity Demo" width="256" height="256" style="margin: 10px;">
     <img src="assets/gender.gif" alt="Gender Demo" width="256" height="256" style="margin: 10px;">
     <img src="assets/hairs.gif" alt="Hairs Demo" width="256" height="256" style="margin: 10px;">
+    <br>
+    <img src="assets/hairparting.gif" alt="Identity Demo" width="256" height="256" style="margin: 10px;">
+    <img src="assets/mouth.gif" alt="Gender Demo" width="256" height="256" style="margin: 10px;">
+    <img src="assets/hairmove.gif" alt="Hairs Demo" width="256" height="256" style="margin: 10px;">
 </div>
