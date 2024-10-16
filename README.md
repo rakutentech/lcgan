@@ -5,6 +5,13 @@
 <div style="text-align: center;">
     <img src="assets/yaw.gif" alt="Yaw Demo" width="256" height="256">
     <img src="assets/pitch.gif" alt="Pitch Demo" width="256" height="256">
+    <img src="assets/zoom.gif" alt="zoom Demo" width="256" height="256">
+</div>
+
+<div style="text-align: center;">
+    <img src="assets/identity.gif" alt="Yaw Demo" width="256" height="256">
+    <img src="assets/gender.gif.gif" alt="Pitch Demo" width="256" height="256">
+    <img src="assets/hairs.gif.gif" alt="Pitch Demo" width="256" height="256">
 </div>
 
 If you find our code or paper useful, please cite as
