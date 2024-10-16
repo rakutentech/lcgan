@@ -21,3 +21,14 @@ We explore the controllability of our image generation model by systematically v
 </div>
 
 ## Training on AFHQ-V2 512x512
+<div style="text-align: center;">
+    <img src="assets/afhq_v2/yaw.gif" alt="Yaw Demo" width="192" height="192" style="margin: 5px;">
+    <img src="assets/afhq_v2/zoom.gif" alt="Pitch Demo" width="192" height="192" style="margin: 5px;">
+    <img src="assets/afhq_v2/pitch.gif" alt="Zoom Demo" width="192" height="192" style="margin: 5px;">
+    <img src="assets/afhq_v2/mouth.gif" alt="Identity Demo" width="192" height="192" style="margin: 5px;">
+    <br>
+    <img src="assets/afhq_v2/texture.gif" alt="Gender Demo" width="192" height="192" style="margin: 5px;">
+    <img src="assets/afhq_v2/class1.gif" alt="Gender Demo" width="192" height="192" style="margin: 5px;">
+    <img src="assets/afhq_v2/class2.gif" alt="Hairs Demo" width="192" height="192" style="margin: 5px;">
+    <img src="assets/afhq_v2/class3.gif" alt="Identity Demo" width="192" height="192" style="margin: 5px;">
+</div>
