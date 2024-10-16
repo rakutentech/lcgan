@@ -1,4 +1,4 @@
-# Linearly Controllable GAN: Unsupervised Feature Categorization and Decomposition for Image Generation and Manipulation
+# Linearly Controllable GAN: Unsupervised Feature Categorization and Decomposition for Image Generation and Manipulation [Paper](https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/00540.pdf)
 
 
 # Requirements
