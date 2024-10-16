@@ -1,6 +1,8 @@
 # Linearly Controllable GAN: Unsupervised Feature Categorization and Decomposition for Image Generation and Manipulation 
 ## [Paper](https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/00540.pdf)
+
 If you find our code or paper useful, please cite as
+
     @inproceedings{lee2024linearly,
         title={Linearly Controllable GAN: Unsupervised Feature Categorization and Decomposition for Image Generation and Manipulation},
         author={Lee, Sehyung and Kim, Mijung and Chae, Yeongnam and Stenger, Bj{\"o}rn},
