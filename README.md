@@ -31,6 +31,19 @@ We explore the controllability of our image generation model by systematically v
 </div>
 
 ## Training on FFHQ 1024x1024
+<div style="text-align: center;">
+    <img src="assets/ffhq/yaw.gif" alt="Yaw Demo" width="256" height="256" style="margin: 10px;">
+    <img src="assets/ffhq/pitch.gif" alt="Pitch Demo" width="256" height="256" style="margin: 10px;">
+    <img src="assets/ffhq/zoom.gif" alt="Zoom Demo" width="256" height="256" style="margin: 10px;">
+    <br>
+    <img src="assets/ffhq/identity.gif" alt="Identity Demo" width="256" height="256" style="margin: 10px;">
+    <img src="assets/ffhq/race.gif" alt="Gender Demo" width="256" height="256" style="margin: 10px;">
+    <img src="assets/ffhq/gender2.gif" alt="Hairs Demo" width="256" height="256" style="margin: 10px;">
+    <br>
+    <img src="assets/ffhq/bald.gif" alt="Identity Demo" width="256" height="256" style="margin: 10px;">
+    <img src="assets/ffhq/movement.gif" alt="Gender Demo" width="256" height="256" style="margin: 10px;">
+    <img src="assets/ffhq/gender.gif" alt="Hairs Demo" width="256" height="256" style="margin: 10px;">
+</div>
 
 
 ## Training on AFHQ-V2 512x512
