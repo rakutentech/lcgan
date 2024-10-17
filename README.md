@@ -17,6 +17,16 @@ We used the 4x or 8x NVIDIA(R) Hopper H100-HBM3-80GB to train the model with the
     pip install torch==2.2.1 torchvision==0.17.1 torchaudio==2.2.1 --index-url https://download.pytorch.org/whl/cu121
     pip install -U albumentations av
 
+# Datasets
+We trained the model on the three different datasets with different resolutions (256x256, 512x512, and 1024x1024)
+- [Celeba-HQ]()
+- [AFHQ-V2]()
+- [FFHQ]()
+
+# Training
+
+# Test
+
 # Result videos
 We explore the controllability of our image generation model by systematically varying the value of a single dimension across a predefined range. Specifically, we adjust this dimension from -2 to 2, allowing for a comprehensive examination of how changes in this parameter influence the characteristics of the generated images. This approach enables us to assess the model's controllability and understand how different input dimensions contribute to the overall image generation process.
 
