@@ -11,12 +11,15 @@ If you find our code or paper useful, please cite as
         year={2024},
     }
 
-# Requirements
+# Requirements and installations
+We used the 4x or 8x NVIDIA(R) Hopper H100-HBM3-80GB to train the model with the following libraries.
+
     pip install torch==2.2.1 torchvision==0.17.1 torchaudio==2.2.1 --index-url https://download.pytorch.org/whl/cu121
     pip install -U albumentations av
 
 # Result videos
 We explore the controllability of our image generation model by systematically varying the value of a single dimension across a predefined range. Specifically, we adjust this dimension from -2 to 2, allowing for a comprehensive examination of how changes in this parameter influence the characteristics of the generated images. This approach enables us to assess the model's controllability and understand how different input dimensions contribute to the overall image generation process.
+
 ## Training on Celeba-HQ 1024x1024
 <div style="text-align: center;">
     <img src="assets/celeba_hq/yaw.gif" alt="Yaw Demo" width="256" height="256" style="margin: 10px;">
@@ -46,7 +49,6 @@ We explore the controllability of our image generation model by systematically v
     <img src="assets/ffhq/movement.gif" alt="Gender Demo" width="256" height="256" style="margin: 10px;">
     <img src="assets/ffhq/gender.gif" alt="Hairs Demo" width="256" height="256" style="margin: 10px;">
 </div>
-
 
 ## Training on AFHQ-V2 512x512
 <div style="text-align: center;">
