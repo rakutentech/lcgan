@@ -18,10 +18,10 @@ We used the 4x or 8x NVIDIA(R) Hopper H100-HBM3-80GB to train the model with the
     pip install -U albumentations av
 
 # Datasets
-We trained the model on the three different datasets with different resolutions (256x256, 512x512, and 1024x1024)
-- [Celeba-HQ]()
-- [AFHQ-V2]()
-- [FFHQ]()
+We trained the model on the three different datasets with different resolutions (256x256, 512x512, and 1024x1024):
+- [Celeba-HQ](https://github.com/tkarras/progressive_growing_of_gans)
+- [FFHQ](https://github.com/NVlabs/ffhq-dataset)
+- [AFHQ-V2](https://github.com/clovaai/stargan-v2)
 
 # Training
 
