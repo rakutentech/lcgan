@@ -25,9 +25,11 @@ We trained the model on the three different datasets with different resolutions 
 
 # Training
 Training on FFHQ 1024x1024 resolution with 8 H100 GPUs
+
     python main.py --phase train --model_name ffhq_1024 --dataset_path DATASET_PATH --epoch 900000 --freezeD_start 500000 --freezeD_layer 5 --batch_size 32 --img_h 1024 --img_w 1024 --nf 32 --g_lr 0.001 --d_lr 0.001 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07 
 
 Training on Celeba-HQ 1024x1024 resolution with 8 H100 GPUs
+
     python main.py --phase train --model_name celeba_hq_1024 --dataset_path DATASET_PATH --epoch 700000 --freezeD_start 300000 --freezeD_layer 5 --batch_size 32 --img_h 1024 --img_w 1024 --nf 32 --g_lr 0.001 --d_lr 0.001 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
 
 Training FFHQ 512x512 resolution with 4 H100 GPUs
