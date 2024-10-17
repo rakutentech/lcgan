@@ -30,6 +30,9 @@ We explore the controllability of our image generation model by systematically v
     <img src="assets/celeba_hq/hairmove.gif" alt="Hairs Demo" width="256" height="256" style="margin: 10px;">
 </div>
 
+## Training on FFHQ 1024x1024
+
+
 ## Training on AFHQ-V2 512x512
 <div style="text-align: center;">
     <img src="assets/afhq_v2/yaw.gif" alt="Yaw Demo" width="192" height="192" style="margin: 5px;">
