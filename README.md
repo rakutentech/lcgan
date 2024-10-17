@@ -32,27 +32,27 @@ Training on Celeba-HQ 1024x1024 resolution using 8 H100 GPUs
 
     python main.py --phase train --model_name celeba_hq_1024 --dataset_path DATASET_PATH --epoch 700000 --freezeD_start 300000 --freezeD_layer 5 --batch_size 32 --img_h 1024 --img_w 1024 --nf 32 --g_lr 0.001 --d_lr 0.001 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
 
-Training FFHQ 512x512 resolution using 4 H100 GPUs
+Training on FFHQ 512x512 resolution using 4 H100 GPUs
 
     python main.py --phase train --model_name ffhq_512 --dataset_path DATASET_PATH --epoch 900000 --freezeD_start 500000 --freezeD_layer 4 --batch_size 32 --img_h 512 --img_w 512 --nf 64 --g_lr 0.002 --d_lr 0.002 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
 
-Training Celeba-HQ 512x512 resolution using 4 H100 GPUs
+Training on Celeba-HQ 512x512 resolution using 4 H100 GPUs
 
     python main.py --phase train --model_name celeba_hq_512 --dataset_path DATASET_PATH --epoch 700000 --freezeD_start 300000 --freezeD_layer 4 --batch_size 32 --img_h 512 --img_w 512 --nf 64 --g_lr 0.002 --d_lr 0.002 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
 
-Training AFHQ-V2 512x512 resolution using 4 H100 GPUs
+Training on AFHQ-V2 512x512 resolution using 4 H100 GPUs
 
     python main.py --phase train --model_name afhq_v2_512 --dataset_path DATASET_PATH --epoch 450000 --freezeD_start 150000 --freezeD_layer 4 --batch_size 32 --img_h 512 --img_w 512 --nf 64 --g_lr 0.002 --d_lr 0.002 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
     
-Training FFHQ 256x256 resolution using 4 H100 GPUs
+Training on FFHQ 256x256 resolution using 4 H100 GPUs
 
     python main.py --phase train --model_name ffhq_256 --dataset_path DATASET_PATH --epoch 900000 --freezeD_start 500000 --freezeD_layer 3 --batch_size 32 --img_h 256 --img_w 256 --nf 128 --g_lr 0.002 --d_lr 0.002 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
     
-Training Celeba-HQ 256x256 resolution using 4 H100 GPUs
+Training on Celeba-HQ 256x256 resolution using 4 H100 GPUs
 
     python main.py --phase train --model_name celeba_hq_256 --dataset_path DATASET_PATH --epoch 700000 --freezeD_start 300000 --freezeD_layer 3 --batch_size 32 --img_h 256 --img_w 256 --nf 128 --g_lr 0.002 --d_lr 0.002 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
 
-Training AFHQ-V2 256x256 resolution using 4 H100 GPUs
+Training on AFHQ-V2 256x256 resolution using 4 H100 GPUs
 
     python main.py --phase train --model_name afhq_v2_256 --dataset_path DATASET_PATH --epoch 450000 --freezeD_start 150000 --freezeD_layer 3 --batch_size 32 --img_h 256 --img_w 256 --nf 128 --g_lr 0.002 --d_lr 0.002 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
 
