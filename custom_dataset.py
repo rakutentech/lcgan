@@ -25,8 +25,7 @@ class Dataset_(Dataset):
         ])
         self.perspective_transform1 = A.Perspective(scale=(0.05, 0.1), keep_size=True, fit_output=True, always_apply=True)
         self.perspective_transform2 = A.Perspective(scale=(0.05, 0.1), keep_size=True, fit_output=False, always_apply=True)
-        self.large_drop_out = A.CoarseDropout(max_holes=1, max_height=0.2, max_width=0.2,
-                                              min_holes=1, min_height=0.1, min_width=0.1, always_apply=True)
+        self.drop_out = A.CoarseDropout(max_holes=1, max_height=0.3, max_width=0.3, min_holes=1, min_height=0.1, min_width=0.1, always_apply=True)
         self.load_dataset()
 
     def random_geometry_transform(self, image):
@@ -46,7 +45,7 @@ class Dataset_(Dataset):
         return image
     
     def random_drop_out(self, image):
-        image = self.large_drop_out(image=np.array(image))
+        image = self.drop_out(image=np.array(image))
         return image
     
     def random_color_transform(self, image):
@@ -71,9 +70,6 @@ class Dataset_(Dataset):
                 resized_image = self.rescaler(image)
             
             resized_image = self.h_flip(resized_image)
-            if self.apply_blur:
-                resized_image = transforms.functional.gaussian_blur(resized_image, kernel_size=5, sigma = (5,5))
-            
             geometry_change = resized_image.copy()
             appearance_change = resized_image.copy()
             resized_image = self.to_tensor(resized_image)

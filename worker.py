@@ -17,7 +17,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel
 from torch.nn import DataParallel
 from torchvision.utils import save_image, make_grid
-from utils.ema import Ema
+from ema import Ema
 from scipy.stats import truncnorm
 
 from eval.inception import InceptionV3
@@ -27,7 +27,7 @@ from torchvision.transforms import ToPILImage
 from torchvision.transforms.functional import resize, InterpolationMode
 import av
 
-class LC_GAN(object):
+class WORKER(object):
     def __init__(self, args, local_rank, gpus_per_node):
         self.args = args
         self.local_rank = local_rank
@@ -35,7 +35,6 @@ class LC_GAN(object):
         self.local_batch_size = args.batch_size // gpus_per_node
         self.global_iter_counter = 0
         self.num_dataloading_workers = 4
-        # if self.args.phase == 'train':
         self.train_dataloader, self.train_dataset, self.train_iter = self.prepare_training_dataset()
         self.generator, self.discriminator, self.g_optimizer, self.d_optimizer = self.set_cnn_models()
         self.generator_ema = copy.deepcopy(self.generator)
@@ -48,7 +47,7 @@ class LC_GAN(object):
         if self.local_rank == 0:
             print("Load training dataset")
 
-        train_dataset = custom_dataset.Dataset_(self.args.dataset_path, self.args.img_w,
+        train_dataset = custom_dataset.Dataset_(self.args.dataset_path, self.args.img_resolution,
                                                 self.local_batch_size, self.args.phase == 'train')
         if self.local_rank == 0:
             print("Train dataset size: {dataset_size}".format(dataset_size=len(train_dataset)))
@@ -128,9 +127,29 @@ class LC_GAN(object):
         for d_name, d_param in self.discriminator.module.shared_model.named_parameters():
             # Extract the index x from the layer name
             x = int(d_name.split('.')[0])
-            if x < freeze_up_to_index:
+            if x <= freeze_up_to_index:
                 d_param.requires_grad = False
 
+    def drop_learning_rate(self):
+        new_g_lr = self.args.g_lr * 0.5
+        new_d_lr = self.args.d_lr * 0.5
+        betas_g = [self.args.beta1, self.args.beta2]
+        betas_d = [self.args.beta1, self.args.beta2]
+        eps_ = 1e-8
+
+        g_parameters = list(self.generator.module.parameters())
+        d_parameters = list(self.discriminator.module.parameters())
+
+        self.g_optimizer = torch.optim.Adam(params=g_parameters,
+                                            lr=new_g_lr,
+                                            betas=betas_g,
+                                            eps=eps_)
+
+        self.d_optimizer = torch.optim.Adam(params=d_parameters,
+                                            lr=new_d_lr,
+                                            betas=betas_d,
+                                            eps=eps_)
+        
     def requires_grad(self, model, flag=True):
         for p in model.parameters():
             p.requires_grad = flag
@@ -146,24 +165,30 @@ class LC_GAN(object):
         rand1 = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
         rand2 = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
         
-        fake_img, _, _ = self.generator(rand1, rand2)
+        fake_img = self.generator(rand1, rand2)
         fake_logit, _, _ = self.discriminator(fake_img, False)
         
         if epoch % 2 == 1:
             image.requires_grad_(True)
             real_logit, _, _ = self.discriminator(image, False)
-            d_loss = F.softplus(-real_logit).mean() + F.softplus(fake_logit).mean()
-            if epoch % 4 == 1:
-                r1_loss = loss.cal_r1_reg(real_logit, image, self.local_rank) * self.args.l_r1
-                d_loss += r1_loss
+            real_label = torch.ones(self.local_batch_size, 1, device=self.local_rank) * 0.95
+            fake_label = torch.zeros(self.local_batch_size, 1, device=self.local_rank)
+            real_loss = F.binary_cross_entropy_with_logits(real_logit, real_label)
+            fake_loss = F.binary_cross_entropy_with_logits(fake_logit, fake_label)            
+            d_adv_loss = real_loss + fake_loss
+            r1_loss = loss.cal_r1_reg(real_logit, image, self.local_rank) * self.args.l_r1
+            d_loss = d_adv_loss + r1_loss
         else:
             real_logit, geometry_feat, appearance_feat = self.discriminator(image, True)
             _, geometry_positive, appearance_negative = self.discriminator(geometry_change, True)
             _, geometry_negative, appearance_positive = self.discriminator(appearance_change, True)
-
-            d_adv_loss = F.softplus(-real_logit).mean() + F.softplus(fake_logit).mean()
-            d_aug_loss = (loss.d_contrastive_loss(geometry_feat, geometry_positive, geometry_negative, self.args.tau, self.args.omega) 
-                        + loss.d_contrastive_loss(appearance_feat, appearance_positive, appearance_negative, self.args.tau, self.args.omega)) * self.args.l_aux
+            real_label = torch.ones(self.local_batch_size, 1, device=self.local_rank) * 0.95
+            fake_label = torch.zeros(self.local_batch_size, 1, device=self.local_rank)
+            real_loss = F.binary_cross_entropy_with_logits(real_logit, real_label)
+            fake_loss = F.binary_cross_entropy_with_logits(fake_logit, fake_label)            
+            d_adv_loss = real_loss + fake_loss
+            d_aug_loss = (loss.contrastive_loss(geometry_feat, geometry_positive, geometry_negative, self.args.tau) 
+                        + loss.contrastive_loss(appearance_feat, appearance_positive, appearance_negative, self.args.tau)) * self.args.l_aux
             d_loss = d_adv_loss + d_aug_loss
             
         d_loss.backward()
@@ -179,22 +204,24 @@ class LC_GAN(object):
         resample2 = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
 
         if epoch % 2 == 1:
-            anchor_image, _, _ = self.generator(rand1, rand2)
+            anchor_image = self.generator(rand1, rand2)
             logit, _, _ = self.discriminator(anchor_image, False)
-            g_adv_loss = F.softplus(-logit).mean()
+            real_label = torch.ones(self.local_batch_size, 1, device=self.local_rank)
+            g_adv_loss = F.binary_cross_entropy_with_logits(logit, real_label)
             g_loss = g_adv_loss
         else:
-            anchor_image, _, _ = self.generator(rand1, rand2)
-            resample_geometry, _, _ = self.generator(resample1, rand2)
-            resample_appearance, _, _ = self.generator(rand1, resample2)
+            anchor_image  = self.generator(rand1, rand2)
+            resample_geometry = self.generator(resample1, rand2)
+            resample_appearance = self.generator(rand1, resample2)
             
             logit, geometry_feat, appearance_feat = self.discriminator(anchor_image, True)
             _, geometry_positive, appearance_negative = self.discriminator(resample_geometry, True)
             _, geometry_negative, appearance_positive = self.discriminator(resample_appearance, True)
 
-            g_adv_loss = F.softplus(-logit).mean()
-            g_aug_loss = (loss.g_contrastive_loss(geometry_feat, geometry_positive, geometry_negative, self.args.tau, self.args.omega) 
-                        + loss.g_contrastive_loss(appearance_feat, appearance_positive, appearance_negative, self.args.tau, self.args.omega)) * self.args.l_aux
+            real_label = torch.ones(self.local_batch_size, 1, device=self.local_rank)
+            g_adv_loss = F.binary_cross_entropy_with_logits(logit, real_label)
+            g_aug_loss = (loss.contrastive_loss(geometry_feat, geometry_positive, geometry_negative, self.args.tau) 
+                        + loss.contrastive_loss(appearance_feat, appearance_positive, appearance_negative, self.args.tau)) * self.args.l_aux
 
             diagonal_params1 = self.generator.module.geometry_mapping.diagonal_params.view(-1)
             diagonal_params2 = self.generator.module.appearance_mapping.diagonal_params.view(-1)
@@ -244,44 +271,6 @@ class LC_GAN(object):
         self.generator_ema.load_state_dict(torch.load(generator_ema_path, map_location=map_location))
         self.discriminator.load_state_dict(torch.load(discriminator_path, map_location=map_location))
 
-    def feature_visualization(self, psi=1.0, w_psi=0.5):
-        # image generation
-        rand1 = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
-        rand2 = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
-        
-        with torch.no_grad():
-            image, feature_maps, flow_maps = self.generator_ema(rand1, rand2, w_psi)    # [-1, 1]
-        folder = os.path.join(self.args.model_name, self.args.temp)
-        canvas = make_grid(image, nrow=self.local_batch_size)
-        canvas = ((canvas + 1) / 2).clamp(0.0, 1.0)
-        save_image(canvas, os.path.join(folder, "gen_images.jpg"), padding=0, nrow=1)
-        
-        num_blocks = int(np.log2(self.args.img_w)) - 2
-        for i in range(num_blocks):
-            b,c,h,w= feature_maps[i].size()
-            features = feature_maps[i]
-            for j in range(self.local_batch_size):
-                num_images = c
-                num_columns = int(num_images ** 0.5)
-                feature_images = features[j,0:c,:,:].view(c,1,h,w).to(dtype=torch.float32)
-                save_image(make_grid(feature_images, nrow=num_columns, normalize=True), 
-                           os.path.join(folder, "{image_num:02d}_feature_{scale_num:02d}_scale.jpg".format(image_num=j, scale_num=i)),
-                           padding=0, 
-                           nrow=1)
-
-        for i in range(num_blocks):
-            b,c,h,w = flow_maps[i].size()
-            flowfields = flow_maps[i]
-            for j in range(self.local_batch_size):
-                new_channel = torch.zeros((1,1,h,w), dtype=torch.float32, device=flowfields.device)
-                flow_images = flowfields[j,0:2,:,:].view(1,2,h,w).to(dtype=torch.float32)
-                flow_images = torch.cat([flow_images,new_channel],1)
-                save_image(make_grid(flow_images, nrow=1, normalize=True), 
-                           os.path.join(folder, "{image_num:02d}_flow_{scale_num:02d}_scale.jpg".format(image_num=j, scale_num=i)),
-                           padding=0, 
-                           nrow=1)
-
-
     def monitor_current_result(self, num_explore=10, w_psi=0.7, epoch=0, nrow=8, images_per_output=32):
         disp_resolution = 128
         to_pil = ToPILImage()
@@ -304,7 +293,7 @@ class LC_GAN(object):
                     inter_code = geometry_start.lerp(geometry_end, 1/(num_explore)*j)
                     for k in range(images_per_output//self.local_batch_size):
                         with torch.no_grad():
-                            geometry_change, _, _ = self.generator_ema(
+                            geometry_change = self.generator_ema(
                                 inter_code[k*self.local_batch_size:(k+1)*self.local_batch_size,:],
                                 appearance_code[k*self.local_batch_size:(k+1)*self.local_batch_size,:],
                                 w_psi
@@ -313,7 +302,6 @@ class LC_GAN(object):
                     canvas = torch.cat(canvas, dim=0)
                     canvas = make_grid(canvas, nrow=nrow, padding=0)
                     canvas = ((canvas + 1) / 2).clamp(0.0, 1.0)
-                    # canvas = canvas.clamp(0.0, 1.0)
                     canvas = resize(canvas, size=(disp_resolution * images_per_output // nrow, disp_resolution * nrow), interpolation=InterpolationMode.BILINEAR)
                     frames.append(to_pil(canvas))
 
@@ -322,7 +310,7 @@ class LC_GAN(object):
                     inter_code = geometry_end.lerp(geometry_start, 1/(num_explore)*j)
                     for k in range(images_per_output//self.local_batch_size):
                         with torch.no_grad():
-                            geometry_change, _, _ = self.generator_ema(
+                            geometry_change = self.generator_ema(
                                 inter_code[k*self.local_batch_size:(k+1)*self.local_batch_size,:],
                                 appearance_code[k*self.local_batch_size:(k+1)*self.local_batch_size,:],
                                 w_psi
@@ -331,7 +319,6 @@ class LC_GAN(object):
                     canvas = torch.cat(canvas, dim=0)
                     canvas = make_grid(canvas, nrow=nrow, padding=0)
                     canvas = ((canvas + 1) / 2).clamp(0.0, 1.0)
-                    # canvas = canvas.clamp(0.0, 1.0)
                     canvas = resize(canvas, size=(disp_resolution * images_per_output // nrow, disp_resolution * nrow), interpolation=InterpolationMode.BILINEAR)
                     frames.append(to_pil(canvas))
 
@@ -360,7 +347,7 @@ class LC_GAN(object):
                     inter_code = appearance_start.lerp(appearance_end, 1/(num_explore)*j)
                     for k in range(images_per_output//self.local_batch_size):
                         with torch.no_grad():
-                            appearance_change, _, _ = self.generator_ema(
+                            appearance_change = self.generator_ema(
                                 geometry_code[k*self.local_batch_size:(k+1)*self.local_batch_size,:],
                                 inter_code[k*self.local_batch_size:(k+1)*self.local_batch_size,:],
                                 w_psi
@@ -368,7 +355,6 @@ class LC_GAN(object):
                         canvas.append(appearance_change)
                     canvas = torch.cat(canvas, dim=0)
                     canvas = make_grid(canvas, nrow=nrow, padding=0)
-                    # canvas = canvas.clamp(0.0, 1.0)
                     canvas = ((canvas + 1) / 2).clamp(0.0, 1.0)
                     canvas = resize(canvas, size=(disp_resolution * images_per_output // nrow, disp_resolution * nrow), interpolation=InterpolationMode.BILINEAR)
                     frames.append(to_pil(canvas))
@@ -378,7 +364,7 @@ class LC_GAN(object):
                     inter_code = appearance_end.lerp(appearance_start, 1/(num_explore)*j)
                     for k in range(images_per_output//self.local_batch_size):
                         with torch.no_grad():
-                            appearance_change, _, _ = self.generator_ema(
+                            appearance_change = self.generator_ema(
                                 geometry_code[k*self.local_batch_size:(k+1)*self.local_batch_size,:],
                                 inter_code[k*self.local_batch_size:(k+1)*self.local_batch_size,:],
                                 w_psi
@@ -386,7 +372,6 @@ class LC_GAN(object):
                         canvas.append(appearance_change)
                     canvas = torch.cat(canvas, dim=0)                 
                     canvas = make_grid(canvas, nrow=nrow, padding=0)
-                    # canvas = canvas.clamp(0.0, 1.0)
                     canvas = ((canvas + 1) / 2).clamp(0.0, 1.0)
                     canvas = resize(canvas, size=(disp_resolution * images_per_output // nrow, disp_resolution * nrow), interpolation=InterpolationMode.BILINEAR)
                     frames.append(to_pil(canvas))
@@ -448,7 +433,6 @@ class LC_GAN(object):
                 image, _ = next(self.train_iter)
             with torch.no_grad():
                 image = image.to(self.local_rank, non_blocking=True).cuda()
-                # image = image * 2.0 - 1.0   # [0,1] to [-1,1]
                 feature = inception(image)[0].view(image.shape[0], -1)
                 training_features.append(feature.to("cpu"))
         
@@ -457,8 +441,7 @@ class LC_GAN(object):
             geometry_code = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
             appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
             with torch.no_grad():
-                fake_images, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                # fake_images = fake_images * 2.0 - 1.0   # [0,1] to [-1,1]
+                fake_images = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
                 feat = inception(fake_images)[0].view(fake_images.shape[0], -1)
                 gen_features.append(feat.to("cpu"))
 
@@ -486,8 +469,9 @@ class LC_GAN(object):
             geometry_code = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
             appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
             with torch.no_grad():
-                fake_images, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                
+                fake_images = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+            
+            fake_images = ((fake_images + 1) / 2).clamp(0.0, 1.0)
             folder_path = os.path.join(self.args.model_name, 'fakes')
             save_path = os.path.join(folder_path, "{num:04d}_images.jpg".format(num=count))
             save_image(fake_images, save_path, padding=0, nrow=1)
@@ -513,11 +497,13 @@ class LC_GAN(object):
                 appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
                 appearance_code[:,ctrl_dim:ctrl_dim+1] =-self.args.psi
                 with torch.no_grad():
-                    image_a, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                    image_a = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                image_a = ((image_a + 1) / 2).clamp(0.0, 1.0)
                 
                 appearance_code[:,ctrl_dim:ctrl_dim+1] = self.args.psi
                 with torch.no_grad():
-                    image_b, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                    image_b = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                image_b = ((image_b + 1) / 2).clamp(0.0, 1.0)
                     
                 for b in range(self.local_batch_size):
                     save_path = os.path.join(folder_path, "image_a/{num:04d}_images.jpg".format(num=count))
@@ -530,11 +516,13 @@ class LC_GAN(object):
                 geometry_code = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
                 appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
                 with torch.no_grad():
-                    image_a, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                    image_a = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                image_a = ((image_a + 1) / 2).clamp(0.0, 1.0)
                 
                 appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
                 with torch.no_grad():
-                    image_b, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                    image_b = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                image_b = ((image_b + 1) / 2).clamp(0.0, 1.0)
                     
                 for b in range(self.local_batch_size):
                     save_path = os.path.join(folder_path, "image_a/{num:04d}_images.jpg".format(num=count))
@@ -555,11 +543,13 @@ class LC_GAN(object):
                 appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
                 geometry_code[:,ctrl_dim:ctrl_dim+1] =-self.args.psi
                 with torch.no_grad():
-                    image_a, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                    image_a = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                image_a = ((image_a + 1) / 2).clamp(0.0, 1.0)
                 
                 geometry_code[:,ctrl_dim:ctrl_dim+1] = self.args.psi
                 with torch.no_grad():
-                    image_b, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                    image_b = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                image_b = ((image_b + 1) / 2).clamp(0.0, 1.0)
                     
                 for b in range(self.local_batch_size):
                     save_path = os.path.join(folder_path, "image_a/{num:04d}_images.jpg".format(num=count))
@@ -572,11 +562,13 @@ class LC_GAN(object):
                 geometry_code = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
                 appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
                 with torch.no_grad():
-                    image_a, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                    image_a = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                image_a = ((image_a + 1) / 2).clamp(0.0, 1.0)
                 
                 geometry_code = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
                 with torch.no_grad():
-                    image_b, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                    image_b = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                image_b = ((image_b + 1) / 2).clamp(0.0, 1.0)
                     
                 for b in range(self.local_batch_size):
                     save_path = os.path.join(folder_path, "image_a/{num:04d}_images.jpg".format(num=count))
@@ -584,68 +576,6 @@ class LC_GAN(object):
                     save_path = os.path.join(folder_path, "image_b/{num:04d}_images.jpg".format(num=count))
                     save_image(image_b[b], save_path, padding=0, nrow=1)
                     count = count + 1
-                
-    def joint_interpolation(self, dim1=0, dim2=1, dim3=2, dim4=3, num_images=1):
-        interval = self.args.psi * 2 / (self.local_batch_size - 1)
-        folder_path = os.path.join(self.args.model_name, 'joint_interpolation')
-        self.check_folder(os.path.join(self.args.model_name, 'joint_interpolation'))
-
-        for ns in tqdm(range(num_images), disable=self.local_rank != 0):
-            sub_folder = os.path.join(folder_path, "{num:03d}".format(num=ns))
-            self.check_folder(sub_folder)
-            
-            init_code = torch.randn(1, self.args.geo_noise_dim + self.args.app_noise_dim, device=self.local_rank)
-            # interpolation according to dim1 and dim2
-            for i in range(self.local_batch_size):
-                code = init_code.repeat([self.local_batch_size,1])
-                code[:, dim1] = -self.args.psi + interval*i
-                code[:, dim2] = torch.linspace(-self.args.psi, self.args.psi, steps=self.local_batch_size, device=self.local_rank)
-                geometry_code, appearance_code = torch.chunk(code, chunks=2, dim=1)
-                with torch.no_grad():
-                    image_a, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                
-                for j in range(self.local_batch_size):
-                    save_path = os.path.join(sub_folder, "d1_d2_images({i:01d},{j:01d}).jpg".format(num=ns, i=i, j=j))
-                    save_image(image_a[j], save_path, padding=0, nrow=1)
-                
-            # interpolation according to dim2 and dim3
-            for i in range(self.local_batch_size):
-                code = init_code.repeat([self.local_batch_size,1])
-                code[:, dim2] = -self.args.psi + interval*i
-                code[:, dim3] = torch.linspace(-self.args.psi, self.args.psi, steps=self.local_batch_size, device=self.local_rank)
-                geometry_code, appearance_code = torch.chunk(code, chunks=2, dim=1)
-                with torch.no_grad():
-                    image_a, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                    
-                for j in range(self.local_batch_size):
-                    save_path = os.path.join(sub_folder, "d2_d3_images({i:01d},{j:01d}).jpg".format(num=ns, i=i, j=j))
-                    save_image(image_a[j], save_path, padding=0, nrow=1)
-                            
-            # interpolation according to dim3 and dim4
-            for i in range(self.local_batch_size):
-                code = init_code.repeat([self.local_batch_size,1])
-                code[:, dim3] = -self.args.psi + interval*i
-                code[:, dim4] = torch.linspace(-self.args.psi, self.args.psi, steps=self.local_batch_size, device=self.local_rank)
-                geometry_code, appearance_code = torch.chunk(code, chunks=2, dim=1)
-                with torch.no_grad():
-                    image_a, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                    
-                for j in range(self.local_batch_size):
-                    save_path = os.path.join(sub_folder, "d3_d4_images({i:01d},{j:01d}).jpg".format(num=ns, i=i, j=j))
-                    save_image(image_a[j], save_path, padding=0, nrow=1)
-                                    
-            # interpolation according to dim4 and dim1
-            for i in range(self.local_batch_size):
-                code = init_code.repeat([self.local_batch_size,1])
-                code[:, dim4] = -self.args.psi + interval*i
-                code[:, dim1] = torch.linspace(-self.args.psi, self.args.psi, steps=self.local_batch_size, device=self.local_rank)
-                geometry_code, appearance_code = torch.chunk(code, chunks=2, dim=1)
-                with torch.no_grad():
-                    image_a, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                    
-                for j in range(self.local_batch_size):
-                    save_path = os.path.join(sub_folder, "d4_d1_images({i:01d},{j:01d}).jpg".format(num=ns, i=i, j=j))
-                    save_image(image_a[j], save_path, padding=0, nrow=1)
                     
                     
     def demo_generation(self, controlled_dim=0, num_video=1, num_explore=30, num_repeat=1):
@@ -663,7 +593,8 @@ class LC_GAN(object):
                 latent_code[:,controlled_dim] = latent_code[:,controlled_dim] + interval
                 geometry_code, appearance_code = torch.chunk(latent_code, chunks=2, dim=1)
                 with torch.no_grad():
-                    image, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                    image = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                image = ((image + 1) / 2).clamp(0.0, 1.0)
                                 
                 n_rows = int(self.local_batch_size ** 0.5)
                 canvas = make_grid(image, nrow=n_rows, padding=0)
@@ -674,7 +605,8 @@ class LC_GAN(object):
                 latent_code[:,controlled_dim] = latent_code[:,controlled_dim] - interval
                 geometry_code, appearance_code = torch.chunk(latent_code, chunks=2, dim=1)
                 with torch.no_grad():
-                    image, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                    image = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                image = ((image + 1) / 2).clamp(0.0, 1.0)
                                 
                 n_rows = int(self.local_batch_size ** 0.5)
                 canvas = make_grid(image, nrow=n_rows, padding=0)
@@ -699,14 +631,14 @@ class LC_GAN(object):
                 latent_code[:,j] = -self.args.psi
                 geometry_code, appearance_code = torch.chunk(latent_code, chunks=2, dim=1)
                 with torch.no_grad():
-                    canvas, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                    canvas = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
 
                 interval = self.args.psi*2.0/(num_explore-1)
                 for k in range(num_explore-1):
                     latent_code[:,j] = latent_code[:,j] + interval
                     geometry_code, appearance_code = torch.chunk(latent_code, chunks=2, dim=1)
                     with torch.no_grad():
-                        image, _, _ = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                        image = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
                     canvas = torch.concat((canvas, image), dim=0)
                 
                 for b in range(self.local_batch_size):

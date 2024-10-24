@@ -7,34 +7,28 @@ from custom_layers import *
 class Discriminator(torch.nn.Module):
     def __init__(self, args):
         super().__init__()
-        self.img_w = args.img_w
-        self.img_h = args.img_h
-        self.nf = args.nf
-        self.max_nf = args.max_nf
+        self.img_resolution = args.img_resolution
         self.last_block_resolution = 4
         self.log_last_block_resolution = int(np.log2(self.last_block_resolution))
-        self.num_blocks = int(np.log2(self.img_w)) - self.log_last_block_resolution
-        self.MP = args.MP
+        self.num_blocks = int(np.log2(self.img_resolution)) - self.log_last_block_resolution
         self.geo_projection_dim = args.geo_projection_dim
         self.app_projection_dim = args.app_projection_dim
+        self.max_nf = 512
+        self.base_nf = 32 if self.img_resolution == 1024 else 64 if self.img_resolution == 512 else 128
         
         blocks = []
-        blocks += [Conv2dLayer(3, self.nf, kernel_size=1, activation='lrelu')]
+        blocks += [EqualizedConv2d(3, self.base_nf, kernel_size=1)]
+        blocks += [nn.LeakyReLU(0.2)]
         for k in range(self.num_blocks):
-            in_channels = min(self.nf * (2 ** k), self.max_nf)
-            out_channels = min(self.nf * (2 ** (k + 1)), self.max_nf)
-            print(k, in_channels, out_channels)
-            blocks += [DiscriminatorBlock(in_channels, 
-                                          out_channels, 
-                                          activation='lrelu', 
-                                          skip=False, 
-                                          use_fp16=self.MP)]
+            in_features = min(self.base_nf * (2 ** k), self.max_nf)
+            out_features = min(self.base_nf * (2 ** (k + 1)), self.max_nf)
+            blocks += [DiscriminatorBlock(in_features, out_features)]
 
         self.shared_model = nn.Sequential(*blocks)
-        self.discriminator_epilogue = DiscriminatorEpilogue(out_channels, resolution=self.last_block_resolution, mbstd_group_size=8, activation='lrelu')
-        self.logit_mapper = MultiLayerPerceptron([out_channels, 1], activation='linear')
-        self.projection_header1 = MultiLayerPerceptron([out_channels * 16, out_channels * 4, out_channels, self.geo_projection_dim], activation='lrelu')
-        self.projection_header2 = MultiLayerPerceptron([out_channels * 16, out_channels * 4, out_channels, self.app_projection_dim], activation='lrelu')
+        self.discriminator_epilogue = DiscriminatorEpilogue(out_features, resolution=self.last_block_resolution, mbstd_group_size=8)
+        self.logit_mapper = ProjectionHead([out_features, 1])
+        self.projection_header1 = ProjectionHead([out_features * 16, out_features * 4, out_features, self.geo_projection_dim])
+        self.projection_header2 = ProjectionHead([out_features * 16, out_features * 4, out_features, self.app_projection_dim])
         
     def forward(self, image, get_embedding_features=False):
         h = self.shared_model(image)
@@ -52,61 +46,43 @@ class Discriminator(torch.nn.Module):
 class Generator(torch.nn.Module):
     def __init__(self, args):
         super(Generator, self).__init__()
-        self.img_w = args.img_w
-        self.img_h = args.img_h
-        self.nf = args.nf
-        self.max_nf = args.max_nf 
+        self.img_resolution = args.img_resolution
         self.first_block_resolution = 4
         self.log_first_block_resolution = int(np.log2(self.first_block_resolution))
-        self.num_blocks = int(np.log2(self.img_w)) - self.log_first_block_resolution
-        self.num_fine_block = 2
-        self.num_coarse_block = self.num_blocks - self.num_fine_block        
-         
-        self.MP = args.MP
+        self.num_blocks = int(np.log2(self.img_resolution)) - self.log_first_block_resolution
+        self.max_nf = 512
+        self.base_nf = 32 if self.img_resolution == 1024 else 64 if self.img_resolution == 512 else 128
+
         self.geo_latent_dim = args.geo_latent_dim
         self.app_latent_dim = args.app_latent_dim
         self.geo_noise_dim = args.geo_noise_dim
         self.app_noise_dim = args.app_noise_dim
+        self.max_flow_scale = args.max_flow_scale
 
-        self.w_avg_beta = 0.9999
+        self.w_avg_beta = 0.998
         self.register_buffer("avg_latent1", torch.zeros([self.geo_latent_dim]))
         self.register_buffer("avg_latent2", torch.zeros([self.app_latent_dim]))
 
         geometry_channels = [self.geo_noise_dim, self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim,
-                             self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim, 
-                             self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim]
+                             self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim]
         
         appearance_channels = [self.app_noise_dim, self.app_latent_dim//4, self.app_latent_dim//2, self.app_latent_dim, self.app_latent_dim,
-                               self.app_latent_dim, self.app_latent_dim, self.app_latent_dim, self.app_latent_dim, self.app_latent_dim,
-                               self.app_latent_dim, self.app_latent_dim, self.app_latent_dim]
+                               self.app_latent_dim, self.app_latent_dim, self.app_latent_dim, self.app_latent_dim]
         
-        self.geometry_mapping = MappingNetwork(geometry_channels, activation='linear')
-        self.appearance_mapping = MappingNetwork(appearance_channels, activation='linear')
-        self.const = torch.nn.Parameter(torch.randn([self.max_nf,
-                                                     self.first_block_resolution,
-                                                     self.first_block_resolution]))
+        self.geometry_mapping = MappingNetwork(geometry_channels)
+        self.appearance_mapping = MappingNetwork(appearance_channels)
+        self.const = torch.nn.Parameter(torch.randn([self.max_nf, self.first_block_resolution, self.first_block_resolution]))
         blocks = []
-        dim_in = self.max_nf
+        in_features = self.max_nf
         for i in range(self.num_blocks):
-            dim_out = self.nf * 2 ** (self.num_blocks - i - 1)
-            dim_out = min(dim_out, self.max_nf)
+            out_features = self.base_nf * 2 ** (self.num_blocks - i - 1)
+            out_features = min(out_features, self.max_nf)
             out_resolution = 2 ** (self.log_first_block_resolution + 1 + i)
-            print(i, dim_in, dim_out, out_resolution)
-            blocks += [SynthesisBlock(dim_in,
-                                      dim_out,
-                                      self.geo_latent_dim,
-                                      self.app_latent_dim,
-                                      out_resolution,
-                                      max_flow_scale=0.1,
-                                      activation='lrelu',
-                                      skip=True,
-                                      use_noise=True,
-                                      use_flow=True,
-                                      use_fp16=self.MP)]
-            dim_in = dim_out
+            blocks += [SynthesisBlock(in_features, out_features, self.geo_latent_dim, self.app_latent_dim, out_resolution, self.max_flow_scale, use_noise=True)]
+            in_features = out_features
             
         self.model = nn.Sequential(*blocks)
-        self.rgb_layer = ToRGBBlock(dim_out, 3, self.app_latent_dim, out_resolution, activation='lrelu')
+        self.rgb_layer = ToRGBBlock(out_features, 3, self.app_latent_dim, out_resolution, use_noise=True)
                 
     def forward(self, rand_noise1, rand_noise2, w_psi=-1.0):
         batch_size = rand_noise1.size(0)
@@ -124,20 +100,14 @@ class Generator(torch.nn.Module):
 
         geometry_code = geometry_code.unsqueeze(1).repeat([1, self.num_blocks, 1])
         appearance_code = appearance_code.unsqueeze(1).repeat([1, (self.num_blocks+1)*2, 1])
-
-        feature_maps = []
-        flow_maps = []
         geometry_index, appearance_index = 0, 0
         x = self.const.unsqueeze(0).repeat([batch_size, 1, 1, 1])
         for i in range(self.num_blocks):
-            x, flowfield = self.model[i](x, 
-                                         geometry_code.narrow(1, geometry_index, 1), 
-                                         appearance_code.narrow(1, appearance_index, 2))
-            geometry_index += 1
-            appearance_index += 2
-            feature_maps.append(x)
-            flow_maps.append(flowfield)
-                         
-        x = x.to(dtype=torch.float32)
+                x = self.model[i](x, 
+                                  geometry_code.narrow(1, geometry_index, 1), 
+                                  appearance_code.narrow(1, appearance_index, 2))
+                geometry_index += 1
+                appearance_index += 2
+                
         out = self.rgb_layer(x, appearance_code.narrow(1, appearance_index, 2))
-        return out, feature_maps, flow_maps
+        return out

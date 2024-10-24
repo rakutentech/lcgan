@@ -3,13 +3,11 @@ import os
 import json
 import random
 
-import lc_gan
+import worker
 import torch
 import torch.distributed as dist
 from datetime import datetime
 from torch.backends import cudnn
-from utils.style_ops import grid_sample_gradfix
-from utils.style_ops import conv2d_gradfix
 
 
 def multi_gpu_setup(local_rank, args, gpus_per_node, port_number):
@@ -30,20 +28,16 @@ def multi_gpu_setup(local_rank, args, gpus_per_node, port_number):
 def load_worker(local_rank, args, gpus_per_node, port_number):
     # setup multi-gpu processing
     multi_gpu_setup(local_rank, args, gpus_per_node, port_number)
-    # Improves training speed
-    conv2d_gradfix.enabled = True
-    # Avoids errors with the augmentation pipe
-    grid_sample_gradfix.enabled = True
 
     if args.phase == 'train':
         with open(os.path.join(args.model_name, 'args.txt'), 'w') as f:
             json.dump(args.__dict__, f, indent=2)
 
-        gan_worker = lc_gan.LC_GAN(args, local_rank, gpus_per_node)
+        gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
         epoch = 0
         
-        if local_rank == 0:
-            start_time = datetime.now()
+        # torch.cuda.synchronize()
+        start_time = datetime.now()
 
         # Load the epoch number from epoch.txt if it exists
         epoch_file_path = os.path.join(args.model_name, 'epoch.txt')
@@ -52,9 +46,14 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
                 epoch = int(file.read().strip()) + 1
                 print("restart training from:", epoch)
             gan_worker.load_model()
+            if epoch > args.freezeD_start:
+                gan_worker.drop_learning_rate()
+                print("drop_learning_rate from here")            
             dist.barrier(gan_worker.group)
         
         while epoch <= args.epoch:
+            if epoch == args.freezeD_start:
+                gan_worker.drop_learning_rate()
             gan_worker.requires_grad(gan_worker.generator, True)
             gan_worker.requires_grad(gan_worker.discriminator, False)
             g_loss = gan_worker.train_generator(epoch)
@@ -65,15 +64,11 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
             if epoch >= args.freezeD_start:
                 gan_worker.freeze_discriminator(args.freezeD_layer)            
             d_loss = gan_worker.train_discriminator(epoch)
-            
-            if epoch < 10000 and args.img_h > 256:
-                gan_worker.train_dataset.apply_blur = True
-            else:
-                gan_worker.train_dataset.apply_blur = False
 
             if epoch % args.print_interval == 0:
+                # torch.cuda.synchronize()
+                elapsed = datetime.now() - start_time
                 if local_rank == 0:
-                    elapsed = datetime.now() - start_time
                     elapsed = str(elapsed).split(".")[0]
                     if epoch == 0:
                         file = open(os.path.join(args.model_name, 'log.txt'), "w")
@@ -88,7 +83,6 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
             if epoch % args.show_interval == 0:
                 if local_rank == 0:
                     gan_worker.monitor_current_result(num_explore=20, w_psi=args.w_psi, epoch=epoch, images_per_output=args.geo_noise_dim)
-                    gan_worker.feature_visualization(w_psi=args.w_psi)
                 dist.barrier(gan_worker.group)
 
             if epoch % args.save_interval == 0 and epoch > 0:
@@ -116,7 +110,7 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
     elif args.phase == 'fid_eval':
         # fid evaluation phase
         print(args)
-        gan_worker = lc_gan.LC_GAN(args, local_rank, gpus_per_node)
+        gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
         gan_worker.load_model()
         dist.barrier(gan_worker.group)
         fid_value = gan_worker.fid_evaluate()
@@ -126,40 +120,30 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
 
     elif args.phase == 'fake_image_generation':
         print(args)
-        gan_worker = lc_gan.LC_GAN(args, local_rank, gpus_per_node)
+        gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
         gan_worker.load_model()
         dist.barrier(gan_worker.group)
         gan_worker.fake_image_generation(num_images=100)
 
     elif args.phase == 'geometry_shared_generation':
         print(args)
-        gan_worker = lc_gan.LC_GAN(args, local_rank, gpus_per_node)
+        gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
         gan_worker.load_model()
         dist.barrier(gan_worker.group)
         gan_worker.geometry_shared_generation(ctrl_dim=args.ctrl_dim, num_pairs=250)
 
     elif args.phase == 'appearance_shared_generation':
         print(args)
-        gan_worker = lc_gan.LC_GAN(args, local_rank, gpus_per_node)
+        gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
         gan_worker.load_model()
         dist.barrier(gan_worker.group)
         if local_rank == 0:
             gan_worker.monitor_current_result(num_explore=20, w_psi=args.w_psi, epoch=1112)        
         gan_worker.appearance_shared_generation(ctrl_dim=args.ctrl_dim, num_pairs=250)
-        
-    elif args.phase == 'joint_interpolation':
-        print(args)
-        gan_worker = lc_gan.LC_GAN(args, local_rank, gpus_per_node)
-        gan_worker.load_model()
-        dist.barrier(gan_worker.group)
-        
-        # gan_worker.joint_interpolation(dim1=18, dim2=21, dim3=32+19, dim4=32+3, num_images=10) # celeba_hq 512 [celeba_hq 512 : pitch, yaw, hair color, hair shape]
-        gan_worker.joint_interpolation(dim1=22, dim2=21, dim3=32+16, dim4=10, num_images=10) # [celeba_hq 512 : smile, yaw, gender, zoom]
-        # gan_worker.joint_interpolation(dim1=18, dim2=21, dim3=32+19, dim4=32+26, num_images=10)   # ffhq 512 
             
     elif args.phase == 'demo_generation':
         print(args)
-        gan_worker = lc_gan.LC_GAN(args, local_rank, gpus_per_node)
+        gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
         gan_worker.load_model()
         dist.barrier(gan_worker.group)
         for i in range(args.geo_noise_dim+args.app_noise_dim):
@@ -168,7 +152,7 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
             
     elif args.phase == 'latent_exploration':
         print(args)
-        gan_worker = lc_gan.LC_GAN(args, local_rank, gpus_per_node)
+        gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
         gan_worker.load_model()
         dist.barrier(gan_worker.group)
-        gan_worker.latent_exploration(num_explore=6, num_images=4)            
+        gan_worker.latent_exploration(num_explore=6, num_images=4)

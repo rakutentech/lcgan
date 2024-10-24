@@ -1,7 +1,3 @@
-<p align="center">
-<img src="assets/under_construction.jpg" width="100%" height="100%">
-</p>
-
 # Linearly Controllable GAN: Unsupervised Feature Categorization and Decomposition for Image Generation and Manipulation 
 This is the official repository of LC-GAN (ECCV2024) by [Rakuten Institute of Technology, Rakuten Group, Inc.](https://rit.rakuten.com/)
 - [Paper](https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/00540.pdf)
