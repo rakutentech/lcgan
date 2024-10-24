@@ -25,7 +25,7 @@ class Dataset_(Dataset):
         ])
         self.perspective_transform1 = A.Perspective(scale=(0.05, 0.1), keep_size=True, fit_output=True, always_apply=True)
         self.perspective_transform2 = A.Perspective(scale=(0.05, 0.1), keep_size=True, fit_output=False, always_apply=True)
-        self.drop_out = A.CoarseDropout(max_holes=1, max_height=0.3, max_width=0.3, min_holes=1, min_height=0.1, min_width=0.1, always_apply=True)
+        self.drop_out = A.CoarseDropout(max_holes=1, max_height=0.5, max_width=0.5, min_holes=1, min_height=0.1, min_width=0.1, always_apply=True)
         self.load_dataset()
 
     def random_geometry_transform(self, image):
