@@ -123,12 +123,12 @@ class WORKER(object):
             image, geometry_change, appearance_change = next(self.train_iter)
         return image, geometry_change, appearance_change
 
-    def freeze_discriminator(self, freeze_up_to_index=5):
-        for d_name, d_param in self.discriminator.module.shared_model.named_parameters():
-            # Extract the index x from the layer name
-            x = int(d_name.split('.')[0])
-            if x <= freeze_up_to_index:
-                d_param.requires_grad = False
+    def freeze_discriminator(self, freeze_up_to_index=3):
+        for i, (name, layer) in enumerate(self.discriminator.module.shared_model.named_children()):
+            if i <= freeze_up_to_index:
+                for param in layer.parameters():
+                    param.requires_grad = False
+                print(f"Freezing layer {i}: {layer}")
 
     def drop_learning_rate(self):
         new_g_lr = self.args.g_lr * 0.5
@@ -382,38 +382,19 @@ class WORKER(object):
             self.save_mp4_video(mult_frames, save_name, fps=15)
             
     def save_mp4_video(self, frames, save_path, fps):
-        # Get the height and width from the first frame
         width, height = frames[0].size
-
-        # Create a PyAV container with the output filename and format
         output = av.open(save_path, 'w')
-
-        # Create a video stream with H.264 codec
         stream = output.add_stream('libx264', rate=fps)
         stream.width = width
         stream.height = height
-
-        # Open the stream for writing
         stream.open()
-
-        # Iterate over the frames and encode them
         for frame in frames:
-            # Convert the PIL image to a numpy array
             frame_np = np.array(frame)
-
-            # Create a PyAV video frame
             video_frame = av.VideoFrame.from_ndarray(frame_np, format='rgb24')
-
-            # Encode the video frame and write it to the output container
             packet = stream.encode(video_frame)
-
-            # Write the encoded packet to the output container
             output.mux(packet)
-
-        # Flush the stream to ensure all frames are written
-        output.mux(stream.encode())
         
-        # Close the stream and the output container
+        output.mux(stream.encode())
         output.close()
         
     def fid_evaluate(self):
@@ -476,107 +457,12 @@ class WORKER(object):
             save_path = os.path.join(folder_path, "{num:04d}_images.jpg".format(num=count))
             save_image(fake_images, save_path, padding=0, nrow=1)
             count = count + 1
-            # for b in range(self.local_batch_size):
-            #     save_path = os.path.join(folder_path, "{num:04d}_images.jpg".format(num=count))
-            #     save_image(fake_images, save_path, padding=0, nrow=1)
-            #     count = count + 1
+            
 
     def check_folder(self, test_dir):
         if not os.path.exists(test_dir):
             os.makedirs(test_dir)
-                
-    def geometry_shared_generation(self, ctrl_dim=-1, num_pairs=100):
-        folder_path = os.path.join(self.args.model_name, 'geometry_shared')
-        self.check_folder(os.path.join(self.args.model_name, 'geometry_shared'))
-        self.check_folder(os.path.join(self.args.model_name, 'geometry_shared/image_a'))
-        self.check_folder(os.path.join(self.args.model_name, 'geometry_shared/image_b'))
-        count = 0
-        if ctrl_dim > -1:
-            for ns in tqdm(range(num_pairs), disable=self.local_rank != 0):
-                geometry_code = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
-                appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
-                appearance_code[:,ctrl_dim:ctrl_dim+1] =-self.args.psi
-                with torch.no_grad():
-                    image_a = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                image_a = ((image_a + 1) / 2).clamp(0.0, 1.0)
-                
-                appearance_code[:,ctrl_dim:ctrl_dim+1] = self.args.psi
-                with torch.no_grad():
-                    image_b = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                image_b = ((image_b + 1) / 2).clamp(0.0, 1.0)
-                    
-                for b in range(self.local_batch_size):
-                    save_path = os.path.join(folder_path, "image_a/{num:04d}_images.jpg".format(num=count))
-                    save_image(image_a[b], save_path, padding=0, nrow=1)
-                    save_path = os.path.join(folder_path, "image_b/{num:04d}_images.jpg".format(num=count))
-                    save_image(image_b[b], save_path, padding=0, nrow=1)
-                    count = count + 1
-        else:
-            for ns in tqdm(range(num_pairs), disable=self.local_rank != 0):
-                geometry_code = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
-                appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
-                with torch.no_grad():
-                    image_a = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                image_a = ((image_a + 1) / 2).clamp(0.0, 1.0)
-                
-                appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
-                with torch.no_grad():
-                    image_b = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                image_b = ((image_b + 1) / 2).clamp(0.0, 1.0)
-                    
-                for b in range(self.local_batch_size):
-                    save_path = os.path.join(folder_path, "image_a/{num:04d}_images.jpg".format(num=count))
-                    save_image(image_a[b], save_path, padding=0, nrow=1)
-                    save_path = os.path.join(folder_path, "image_b/{num:04d}_images.jpg".format(num=count))
-                    save_image(image_b[b], save_path, padding=0, nrow=1)
-                    count = count + 1
-                                               
-    def appearance_shared_generation(self, ctrl_dim=-1, num_pairs=100):
-        folder_path = os.path.join(self.args.model_name, 'appearance_shared')
-        self.check_folder(os.path.join(self.args.model_name, 'appearance_shared'))
-        self.check_folder(os.path.join(self.args.model_name, 'appearance_shared/image_a'))
-        self.check_folder(os.path.join(self.args.model_name, 'appearance_shared/image_b'))
-        count = 0
-        if ctrl_dim > -1:
-            for ns in tqdm(range(num_pairs), disable=self.local_rank != 0):
-                geometry_code = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
-                appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
-                geometry_code[:,ctrl_dim:ctrl_dim+1] =-self.args.psi
-                with torch.no_grad():
-                    image_a = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                image_a = ((image_a + 1) / 2).clamp(0.0, 1.0)
-                
-                geometry_code[:,ctrl_dim:ctrl_dim+1] = self.args.psi
-                with torch.no_grad():
-                    image_b = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                image_b = ((image_b + 1) / 2).clamp(0.0, 1.0)
-                    
-                for b in range(self.local_batch_size):
-                    save_path = os.path.join(folder_path, "image_a/{num:04d}_images.jpg".format(num=count))
-                    save_image(image_a[b], save_path, padding=0, nrow=1)
-                    save_path = os.path.join(folder_path, "image_b/{num:04d}_images.jpg".format(num=count))
-                    save_image(image_b[b], save_path, padding=0, nrow=1)
-                    count = count + 1            
-        else:
-            for ns in tqdm(range(num_pairs), disable=self.local_rank != 0):
-                geometry_code = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
-                appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
-                with torch.no_grad():
-                    image_a = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                image_a = ((image_a + 1) / 2).clamp(0.0, 1.0)
-                
-                geometry_code = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
-                with torch.no_grad():
-                    image_b = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                image_b = ((image_b + 1) / 2).clamp(0.0, 1.0)
-                    
-                for b in range(self.local_batch_size):
-                    save_path = os.path.join(folder_path, "image_a/{num:04d}_images.jpg".format(num=count))
-                    save_image(image_a[b], save_path, padding=0, nrow=1)
-                    save_path = os.path.join(folder_path, "image_b/{num:04d}_images.jpg".format(num=count))
-                    save_image(image_b[b], save_path, padding=0, nrow=1)
-                    count = count + 1
-                    
+
                     
     def demo_generation(self, controlled_dim=0, num_video=1, num_explore=30, num_repeat=1):
         folder_path = os.path.join(self.args.model_name, 'demo')
@@ -617,33 +503,3 @@ class WORKER(object):
             mult_frames.extend(frames * num_repeat)
             save_name = os.path.join(self.args.model_name, "demo/controlled_dim={num}_{n}.mp4".format(num=controlled_dim,n=n))
             self.save_mp4_video(mult_frames, save_name, fps=num_explore)
-        
-        
-    def latent_exploration(self, num_explore=5, num_images=1):
-        folder_path = os.path.join(self.args.model_name, 'latent_exploration')
-        self.check_folder(folder_path)
-        
-        count = 0
-        for i in range(num_images):
-            for j in range(self.args.geo_noise_dim + self.args.app_noise_dim):
-                latent_code = torch.randn(self.local_batch_size, self.args.geo_noise_dim + self.args.app_noise_dim, device=self.local_rank)
-                
-                latent_code[:,j] = -self.args.psi
-                geometry_code, appearance_code = torch.chunk(latent_code, chunks=2, dim=1)
-                with torch.no_grad():
-                    canvas = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-
-                interval = self.args.psi*2.0/(num_explore-1)
-                for k in range(num_explore-1):
-                    latent_code[:,j] = latent_code[:,j] + interval
-                    geometry_code, appearance_code = torch.chunk(latent_code, chunks=2, dim=1)
-                    with torch.no_grad():
-                        image = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
-                    canvas = torch.concat((canvas, image), dim=0)
-                
-                for b in range(self.local_batch_size):
-                    selected_images = canvas[b::self.local_batch_size]
-                    selected_images = ((selected_images + 1) / 2).clamp(0.0, 1.0)
-                    save_name = os.path.join(folder_path, "{dim:04d}_{b:04d}_{n:04d}_images.jpg".format(dim=j,b=b,n=i))
-                    save_image(selected_images, save_name, padding=0, nrow=num_explore)
-                    count = count + 1

@@ -15,7 +15,6 @@ def parse_args():
 
     parser.add_argument('--phase', type=str, default='train', help='train, evaluation, or ...')
     parser.add_argument("--best", default=False, action="store_true", help='Load the best model')
-    parser.add_argument("--seed", type=int, default=-1, help="seed for generating random numbers")
 
     parser.add_argument('--tau', type=float, default=0.05, help='The margin of contrastive loss')
     parser.add_argument('--l_adv', type=float, default=1.0, help='The weight of adversarial loss')
@@ -51,7 +50,6 @@ def parse_args():
     parser.add_argument('--model_name', type=str, default='', help='model name')
     parser.add_argument('--save_dir', type=str, default='model', help='Directory name to save the model')
     parser.add_argument('--sample_dir', type=str, default='samples', help='Directory name to save the training results')
-    parser.add_argument('--interpolation_dir', type=str, default='latent_exploration', help='Directory name to save the interpolation results')
 
     parser.add_argument('--num_fakes', type=int, default=10, help='Number of images to generate')
     parser.add_argument('--num_cols', type=int, default=4, help='Number of images to generate at each batch')
@@ -83,8 +81,6 @@ def check_args(args):
     # --save dir
     check_folder(os.path.join(args.model_name, args.save_dir))
     check_folder(os.path.join(args.model_name, args.sample_dir))
-    check_folder(os.path.join(args.model_name, args.interpolation_dir))
-    check_folder(os.path.join(args.model_name, 'fakes'))    
 
     # --epoch
     try:
@@ -97,9 +93,6 @@ def check_args(args):
         assert args.batch_size >= 1
     except:
         print('batch size must be larger than or equal to one')
-
-    if args.seed == -1:
-        args.seed = random.randint(1, 4096)
 
     return args
 

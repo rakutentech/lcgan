@@ -15,11 +15,9 @@ class Dataset_(Dataset):
         self.resized_size = resized_size
         self.is_train = is_train
         self.apply_blur = False
-
         self.rescaler = transforms.Resize((resized_size, resized_size), Image.LANCZOS)
         self.to_tensor = transforms.ToTensor()
         self.h_flip = transforms.RandomHorizontalFlip()
-
         self.color_jitter = A.Compose([
             A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2, always_apply=True),
         ])

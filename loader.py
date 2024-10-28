@@ -17,12 +17,6 @@ def multi_gpu_setup(local_rank, args, gpus_per_node, port_number):
                             rank=local_rank,
                             world_size=gpus_per_node)
     torch.cuda.set_device(local_rank)
-    # setting seeds
-    random.seed(args.seed+local_rank)
-    torch.manual_seed(args.seed+local_rank)
-    torch.cuda.manual_seed_all(args.seed+local_rank)
-    torch.cuda.manual_seed(args.seed+local_rank)
-    np.random.seed(args.seed+local_rank)
 
 
 def load_worker(local_rank, args, gpus_per_node, port_number):
@@ -36,7 +30,6 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
         gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
         epoch = 0
         
-        # torch.cuda.synchronize()
         start_time = datetime.now()
 
         # Load the epoch number from epoch.txt if it exists
@@ -66,7 +59,6 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
             d_loss = gan_worker.train_discriminator(epoch)
 
             if epoch % args.print_interval == 0:
-                # torch.cuda.synchronize()
                 elapsed = datetime.now() - start_time
                 if local_rank == 0:
                     elapsed = str(elapsed).split(".")[0]
@@ -80,7 +72,7 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
                     file.close()
                 dist.barrier(gan_worker.group)
             
-            if epoch % args.show_interval == 0:
+            if epoch % args.show_interval == 0 and epoch > 0:
                 if local_rank == 0:
                     gan_worker.monitor_current_result(num_explore=20, w_psi=args.w_psi, epoch=epoch, images_per_output=args.geo_noise_dim)
                 dist.barrier(gan_worker.group)
@@ -119,40 +111,7 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
         file.close()
 
     elif args.phase == 'fake_image_generation':
-        print(args)
         gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
         gan_worker.load_model()
         dist.barrier(gan_worker.group)
         gan_worker.fake_image_generation(num_images=100)
-
-    elif args.phase == 'geometry_shared_generation':
-        print(args)
-        gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
-        gan_worker.load_model()
-        dist.barrier(gan_worker.group)
-        gan_worker.geometry_shared_generation(ctrl_dim=args.ctrl_dim, num_pairs=250)
-
-    elif args.phase == 'appearance_shared_generation':
-        print(args)
-        gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
-        gan_worker.load_model()
-        dist.barrier(gan_worker.group)
-        if local_rank == 0:
-            gan_worker.monitor_current_result(num_explore=20, w_psi=args.w_psi, epoch=1112)        
-        gan_worker.appearance_shared_generation(ctrl_dim=args.ctrl_dim, num_pairs=250)
-            
-    elif args.phase == 'demo_generation':
-        print(args)
-        gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
-        gan_worker.load_model()
-        dist.barrier(gan_worker.group)
-        for i in range(args.geo_noise_dim+args.app_noise_dim):
-            print(i)
-            gan_worker.demo_generation(controlled_dim=i, num_video=10)
-            
-    elif args.phase == 'latent_exploration':
-        print(args)
-        gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
-        gan_worker.load_model()
-        dist.barrier(gan_worker.group)
-        gan_worker.latent_exploration(num_explore=6, num_images=4)

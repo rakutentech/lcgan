@@ -3,7 +3,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+# Optional for StyleGAN-v1
+class AdaIN(nn.Module):
+    def __init__(self, latent_dim, num_features):
+        super().__init__()
+        self.norm = nn.InstanceNorm2d(num_features, affine=False)
+        self.linear = EqualizedLinear(latent_dim, num_features*2, bias=1.0, lr_mul=1.0)
 
+    def forward(self, x, s):
+        h = self.linear(s)
+        h = h.view(h.size(0), h.size(1), 1, 1)
+        gamma, beta = torch.chunk(h, chunks=2, dim=1)
+        return (1 + gamma) * self.norm(x) + beta
+
+    
 class EqualizedWeight(nn.Module):
     def __init__(self, shape, lr_mul=1.0):
         super().__init__()
@@ -24,7 +37,7 @@ class EqualizedLinear(nn.Module):
     def forward(self, x):
         return F.linear(x, self.weight(), bias=self.bias * self.lr_mul)
 
-
+    
 class EqualizedConv2d(nn.Module):
     def __init__(self, in_features, out_features, kernel_size, stride=1, no_bias=False, lr_mul=1.0):
         super().__init__()
@@ -71,20 +84,29 @@ class ModulatedConv2d(nn.Module):
 
 
 class SynthesisLayer(nn.Module):
-    def __init__(self, in_features, out_features, latent_dim, resolution, kernel_size=3, lr_mul=1.0, use_noise=False):
+    def __init__(self, in_features, out_features, latent_dim, resolution, kernel_size=3, lr_mul=1.0, use_noise=False, legacy_norm=False):
         super().__init__()
         self.latent_dim = latent_dim
         self.resolution = resolution
         self.use_noise = use_noise
-        self.linear = EqualizedLinear(self.latent_dim, in_features, bias=1.0, lr_mul=1.0)
-        self.modulated_conv = ModulatedConv2d(in_features, out_features, kernel_size, lr_mul=1.0)
+        self.legacy_norm = legacy_norm
+        if self.legacy_norm:
+            self.adain = AdaIN(self.latent_dim, in_features)
+            self.conv = EqualizedConv2d(in_features, out_features, kernel_size, lr_mul=1.0)
+        else:
+            self.linear = EqualizedLinear(self.latent_dim, in_features, bias=1.0, lr_mul=1.0)
+            self.modulated_conv = ModulatedConv2d(in_features, out_features, kernel_size, lr_mul=1.0)
         self.noise_strength = nn.Parameter(torch.zeros([]))
         self.register_buffer("noise_const", torch.randn([self.resolution, self.resolution]))
 
     def forward(self, x, latent):
         # Convolution with demodulation
-        s = self.linear(latent)
-        x = self.modulated_conv(x, s)
+        if self.legacy_norm:
+            x = self.adain(x, latent)
+            x = self.conv(x)
+        else:
+            s = self.linear(latent)
+            x = self.modulated_conv(x, s)
         # Noise addition
         if self.use_noise:
             noise = self.noise_const * self.noise_strength
@@ -123,7 +145,7 @@ class SynthesisBlock(nn.Module):
         skip = self.skip_layer(x) * self.skip_gain
         skip = F.interpolate(skip, scale_factor=2, mode='bilinear')
                 
-        x = F.interpolate(x, scale_factor=2, mode='bilinear')
+        x = F.interpolate(x, scale_factor=2, mode='nearest')
         flowfield = self.flow_layer(x, next(g_iter))
         flowfield = torch.tanh(flowfield)
 
@@ -137,7 +159,7 @@ class SynthesisBlock(nn.Module):
         b, c, h, w = x.size()
         coordinates = self.get_coordinates(b, h, w, x.device).to(dtype=torch.float32, device=x.device)
         correspondence_map = coordinates + flowfield.to(dtype=torch.float32, device=x.device) * self.max_flow_scale
-        x = F.grid_sample(x, correspondence_map.permute(0, 2, 3, 1), mode='bilinear')
+        x = F.grid_sample(x, correspondence_map.permute(0, 2, 3, 1), mode='bicubic')
         return x
 
 

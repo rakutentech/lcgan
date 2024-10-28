@@ -64,10 +64,12 @@ class Generator(torch.nn.Module):
         self.register_buffer("avg_latent2", torch.zeros([self.app_latent_dim]))
 
         geometry_channels = [self.geo_noise_dim, self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim,
-                             self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim]
+                             self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim, 
+                             self.geo_latent_dim, self.geo_latent_dim, self.geo_latent_dim]
         
         appearance_channels = [self.app_noise_dim, self.app_latent_dim//4, self.app_latent_dim//2, self.app_latent_dim, self.app_latent_dim,
-                               self.app_latent_dim, self.app_latent_dim, self.app_latent_dim, self.app_latent_dim]
+                               self.app_latent_dim, self.app_latent_dim, self.app_latent_dim, self.app_latent_dim, self.app_latent_dim,
+                               self.app_latent_dim, self.app_latent_dim, self.app_latent_dim]
         
         self.geometry_mapping = MappingNetwork(geometry_channels)
         self.appearance_mapping = MappingNetwork(appearance_channels)
