@@ -8,13 +8,11 @@ import torchvision.transforms as transforms
 import albumentations as A
 
 class Dataset_(Dataset):
-    def __init__(self, data_dir, resized_size, aug_change_unit, is_train):
+    def __init__(self, data_dir, resized_size, is_train):
         super(Dataset_, self).__init__()
         self.data_dir = data_dir
-        self.aug_change_unit = aug_change_unit
         self.resized_size = resized_size
         self.is_train = is_train
-        self.apply_blur = False
         self.rescaler = transforms.Resize((resized_size, resized_size), Image.LANCZOS)
         self.to_tensor = transforms.ToTensor()
         self.h_flip = transforms.RandomHorizontalFlip()
@@ -23,7 +21,7 @@ class Dataset_(Dataset):
         ])
         self.perspective_transform1 = A.Perspective(scale=(0.05, 0.1), keep_size=True, fit_output=True, always_apply=True)
         self.perspective_transform2 = A.Perspective(scale=(0.05, 0.1), keep_size=True, fit_output=False, always_apply=True)
-        self.drop_out = A.CoarseDropout(max_holes=1, max_height=0.5, max_width=0.5, min_holes=1, min_height=0.1, min_width=0.1, always_apply=True)
+        self.drop_out = A.CoarseDropout(max_holes=1, max_height=0.5, max_width=0.5, min_holes=1, min_height=0.3, min_width=0.3, always_apply=True)
         self.load_dataset()
 
     def random_geometry_transform(self, image):

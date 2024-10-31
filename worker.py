@@ -47,8 +47,9 @@ class WORKER(object):
         if self.local_rank == 0:
             print("Load training dataset")
 
-        train_dataset = custom_dataset.Dataset_(self.args.dataset_path, self.args.img_resolution,
-                                                self.local_batch_size, self.args.phase == 'train')
+        train_dataset = custom_dataset.Dataset_(self.args.dataset_path, 
+                                                self.args.img_resolution, 
+                                                self.args.phase == 'train')
         if self.local_rank == 0:
             print("Train dataset size: {dataset_size}".format(dataset_size=len(train_dataset)))
 
@@ -188,7 +189,7 @@ class WORKER(object):
             fake_loss = F.binary_cross_entropy_with_logits(fake_logit, fake_label)            
             d_adv_loss = real_loss + fake_loss
             d_aug_loss = (loss.contrastive_loss(geometry_feat, geometry_positive, geometry_negative, self.args.tau) 
-                        + loss.contrastive_loss(appearance_feat, appearance_positive, appearance_negative, self.args.tau)) * self.args.l_aux
+                        + loss.contrastive_loss(appearance_feat, appearance_positive, appearance_negative, self.args.tau)) * self.args.l_aux            
             d_loss = d_adv_loss + d_aug_loss
             
         d_loss.backward()
@@ -210,7 +211,7 @@ class WORKER(object):
             g_adv_loss = F.binary_cross_entropy_with_logits(logit, real_label)
             g_loss = g_adv_loss
         else:
-            anchor_image  = self.generator(rand1, rand2)
+            anchor_image = self.generator(rand1, rand2)
             resample_geometry = self.generator(resample1, rand2)
             resample_appearance = self.generator(rand1, resample2)
             

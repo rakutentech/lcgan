@@ -19,13 +19,13 @@ class Discriminator(torch.nn.Module):
         blocks = []
         blocks += [EqualizedConv2d(3, self.base_nf, kernel_size=1)]
         blocks += [nn.LeakyReLU(0.2)]
-        for k in range(self.num_blocks):
-            in_features = min(self.base_nf * (2 ** k), self.max_nf)
-            out_features = min(self.base_nf * (2 ** (k + 1)), self.max_nf)
+        for i in range(self.num_blocks):
+            in_features = min(self.base_nf * (2 ** i), self.max_nf)
+            out_features = min(self.base_nf * (2 ** (i + 1)), self.max_nf)
             blocks += [DiscriminatorBlock(in_features, out_features)]
 
         self.shared_model = nn.Sequential(*blocks)
-        self.discriminator_epilogue = DiscriminatorEpilogue(out_features, resolution=self.last_block_resolution, mbstd_group_size=8)
+        self.discriminator_epilogue = DiscriminatorEpilogue(out_features, resolution=self.last_block_resolution, mbstd_group_size=4)
         self.logit_mapper = ProjectionHead([out_features, 1])
         self.projection_header1 = ProjectionHead([out_features * 16, out_features * 4, out_features, self.geo_projection_dim])
         self.projection_header2 = ProjectionHead([out_features * 16, out_features * 4, out_features, self.app_projection_dim])

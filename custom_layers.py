@@ -8,7 +8,7 @@ class AdaIN(nn.Module):
     def __init__(self, latent_dim, num_features):
         super().__init__()
         self.norm = nn.InstanceNorm2d(num_features, affine=False)
-        self.linear = EqualizedLinear(latent_dim, num_features*2, bias=1.0, lr_mul=1.0)
+        self.linear = EqualizedLinear(latent_dim, num_features*2, bias=1.0, lr_mul=0.01)
 
     def forward(self, x, s):
         h = self.linear(s)
@@ -96,8 +96,10 @@ class SynthesisLayer(nn.Module):
         else:
             self.linear = EqualizedLinear(self.latent_dim, in_features, bias=1.0, lr_mul=1.0)
             self.modulated_conv = ModulatedConv2d(in_features, out_features, kernel_size, lr_mul=1.0)
-        self.noise_strength = nn.Parameter(torch.zeros([]))
-        self.register_buffer("noise_const", torch.randn([self.resolution, self.resolution]))
+            
+        if self.use_noise:
+            self.noise_strength = nn.Parameter(torch.zeros([]))
+            self.register_buffer("noise_const", torch.randn([self.resolution, self.resolution]))
 
     def forward(self, x, latent):
         # Convolution with demodulation
@@ -127,7 +129,6 @@ class SynthesisBlock(nn.Module):
         self.gain = np.sqrt(2)
         self.skip_gain = np.sqrt(0.5)
         
-
     def get_coordinates(self, b, h, w, device):
         grid_y, grid_x = torch.meshgrid(torch.arange(h, dtype=torch.float32, device=device),
                                         torch.arange(w, dtype=torch.float32, device=device), 
@@ -145,7 +146,7 @@ class SynthesisBlock(nn.Module):
         skip = self.skip_layer(x) * self.skip_gain
         skip = F.interpolate(skip, scale_factor=2, mode='bilinear')
                 
-        x = F.interpolate(x, scale_factor=2, mode='nearest')
+        x = F.interpolate(x, scale_factor=2, mode='bilinear')
         flowfield = self.flow_layer(x, next(g_iter))
         flowfield = torch.tanh(flowfield)
 
@@ -159,7 +160,7 @@ class SynthesisBlock(nn.Module):
         b, c, h, w = x.size()
         coordinates = self.get_coordinates(b, h, w, x.device).to(dtype=torch.float32, device=x.device)
         correspondence_map = coordinates + flowfield.to(dtype=torch.float32, device=x.device) * self.max_flow_scale
-        x = F.grid_sample(x, correspondence_map.permute(0, 2, 3, 1), mode='bicubic')
+        x = F.grid_sample(x, correspondence_map.permute(0, 2, 3, 1), mode='bilinear')
         return x
 
 
@@ -169,7 +170,7 @@ class ToRGBBlock(nn.Module):
         self.resolution = resolution
         self.use_noise = use_noise
         self.modulated_conv0 = SynthesisLayer(in_features, in_features, a_latent_dim, resolution, use_noise=self.use_noise)
-        self.modulated_conv1 = SynthesisLayer(in_features, out_features, a_latent_dim, resolution, use_noise=False)
+        self.modulated_conv1 = SynthesisLayer(in_features, out_features, a_latent_dim, resolution, kernel_size=1, use_noise=False)
     
     def forward(self, x, a_latent):
         a_iter = iter(a_latent.unbind(dim=1))
@@ -183,14 +184,20 @@ class DiscriminatorBlock(nn.Module):
     def __init__(self, in_features, out_features):
         super().__init__()
         self.conv0 = EqualizedConv2d(in_features, in_features, kernel_size=3, lr_mul=1.0)
-        self.conv1 = EqualizedConv2d(in_features, out_features, kernel_size=3, lr_mul=1.0)
+        self.conv1 = EqualizedConv2d(in_features, out_features, kernel_size=3, stride=2, lr_mul=1.0)
+        self.skip_layer = EqualizedConv2d(in_features, out_features, kernel_size=1, no_bias=True, lr_mul=1.0)
+        self.gain = np.sqrt(2)
+        self.skip_gain = np.sqrt(0.5)
 
     def forward(self, x):
+        skip = F.avg_pool2d(x, kernel_size=3, stride=2, padding=1)
+        skip = self.skip_layer(skip) * self.skip_gain
         x = self.conv0(x)
-        x = F.leaky_relu(x, 0.2)
-        x = F.avg_pool2d(x, kernel_size=3, stride=2, padding=1)
+        x = F.leaky_relu(x, 0.2) * self.gain
+        x = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
         x = self.conv1(x)
         x = F.leaky_relu(x, 0.2)
+        x = skip.add_(x)
         return x
 
 
@@ -234,7 +241,7 @@ class MinibatchStdLayer(nn.Module):
 
 
 class MappingNetwork(nn.Module):
-    def __init__(self, channels_list, activation='linear', lr_mul=0.01):
+    def __init__(self, channels_list, lr_mul=0.01):
         super().__init__()
         self.eps = 1e-8
         self.matrix_size = channels_list[0]
@@ -245,9 +252,7 @@ class MappingNetwork(nn.Module):
         for idx in range(self.num_layers):
             in_features = channels_list[idx]
             out_features = channels_list[idx + 1]
-            mlp += [EqualizedLinear(in_features, out_features, lr_mul=0.01)]
-            if activation == 'lrelu':
-                mlp += [nn.LeakyReLU(0.2)]
+            mlp += [EqualizedLinear(in_features, out_features, lr_mul=lr_mul)]
         self.mlp = nn.Sequential(*mlp)
 
     def orthogonalize(self, matrix):
@@ -267,7 +272,7 @@ class MappingNetwork(nn.Module):
 
 
 class ProjectionHead(nn.Module):
-    def __init__(self, channels_list, lr_multiplier=0.01):
+    def __init__(self, channels_list, lr_mul=0.01):
         super().__init__()
         self.num_layers = len(channels_list) - 1
         if self.num_layers > 0:
@@ -275,7 +280,7 @@ class ProjectionHead(nn.Module):
             for idx in range(self.num_layers):
                 in_features = channels_list[idx]
                 out_features = channels_list[idx + 1]
-                mlp += [EqualizedLinear(in_features, out_features, lr_mul=0.01)]
+                mlp += [EqualizedLinear(in_features, out_features, lr_mul=lr_mul)]
                 if idx < self.num_layers - 1:
                     mlp += [nn.LeakyReLU(0.2)]
             self.mlp = nn.Sequential(*mlp)
