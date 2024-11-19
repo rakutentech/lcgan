@@ -79,12 +79,6 @@ class WORKER(object):
             print(discriminator)
             print(generator)
 
-        g_parameters, d_parameters = [], []
-        for g_name, g_param in generator.named_parameters():
-            g_parameters.append(g_param)
-        for d_name, d_param in discriminator.named_parameters():
-            d_parameters.append(d_param)
-
         generator = DistributedDataParallel(generator,
                                             device_ids=[self.local_rank],
                                             broadcast_buffers=False,
@@ -94,6 +88,9 @@ class WORKER(object):
                                                 device_ids=[self.local_rank],
                                                 broadcast_buffers=False,
                                                 find_unused_parameters=True)
+
+        g_parameters = list(generator.module.parameters())
+        d_parameters = list(discriminator.module.parameters())
 
         betas_g = [self.args.beta1, self.args.beta2]
         betas_d = [self.args.beta1, self.args.beta2]
@@ -123,17 +120,16 @@ class WORKER(object):
             self.train_iter = iter(self.train_dataloader)
             image, geometry_change, appearance_change = next(self.train_iter)
         return image, geometry_change, appearance_change
-
-    def freeze_discriminator(self, freeze_up_to_index=3):
-        for i, (name, layer) in enumerate(self.discriminator.module.shared_model.named_children()):
-            if i <= freeze_up_to_index:
-                for param in layer.parameters():
-                    param.requires_grad = False
-                print(f"Freezing layer {i}: {layer}")
+                    
+    def freeze_discriminator(self, freeze_up_to_index=5):
+        for d_name, d_param in self.discriminator.module.shared_model.named_parameters():
+            x = int(d_name.split('.')[0])
+            if x < freeze_up_to_index + 2:
+                d_param.requires_grad = False
 
     def drop_learning_rate(self):
-        new_g_lr = self.args.g_lr * 0.5
-        new_d_lr = self.args.d_lr * 0.5
+        new_g_lr = self.args.g_lr * 1.0
+        new_d_lr = self.args.d_lr * 1.0
         betas_g = [self.args.beta1, self.args.beta2]
         betas_d = [self.args.beta1, self.args.beta2]
         eps_ = 1e-8
@@ -172,13 +168,14 @@ class WORKER(object):
         if epoch % 2 == 1:
             image.requires_grad_(True)
             real_logit, _, _ = self.discriminator(image, False)
-            real_label = torch.ones(self.local_batch_size, 1, device=self.local_rank) * 0.95
+            real_label = torch.ones(self.local_batch_size, 1, device=self.local_rank)
             fake_label = torch.zeros(self.local_batch_size, 1, device=self.local_rank)
-            real_loss = F.binary_cross_entropy_with_logits(real_logit, real_label)
-            fake_loss = F.binary_cross_entropy_with_logits(fake_logit, fake_label)            
-            d_adv_loss = real_loss + fake_loss
-            r1_loss = loss.cal_r1_reg(real_logit, image, self.local_rank) * self.args.l_r1
-            d_loss = d_adv_loss + r1_loss
+            real_loss = F.binary_cross_entropy_with_logits(real_logit, real_label) * 0.95
+            fake_loss = F.binary_cross_entropy_with_logits(fake_logit, fake_label)
+            d_loss = real_loss + fake_loss
+            if epoch % 8 == 1:
+                r1_loss = loss.cal_r1_reg(real_logit, image, self.local_rank) * self.args.l_r1
+                d_loss = d_loss + r1_loss
         else:
             real_logit, geometry_feat, appearance_feat = self.discriminator(image, True)
             _, geometry_positive, appearance_negative = self.discriminator(geometry_change, True)

@@ -22,10 +22,10 @@ class Discriminator(torch.nn.Module):
         for i in range(self.num_blocks):
             in_features = min(self.base_nf * (2 ** i), self.max_nf)
             out_features = min(self.base_nf * (2 ** (i + 1)), self.max_nf)
-            blocks += [DiscriminatorBlock(in_features, out_features)]
+            blocks += [DiscriminatorBlock(in_features, out_features, skip=True)]
 
         self.shared_model = nn.Sequential(*blocks)
-        self.discriminator_epilogue = DiscriminatorEpilogue(out_features, resolution=self.last_block_resolution, mbstd_group_size=4)
+        self.discriminator_epilogue = DiscriminatorEpilogue(out_features, resolution=self.last_block_resolution, mbstd_group_size=8)
         self.logit_mapper = ProjectionHead([out_features, 1])
         self.projection_header1 = ProjectionHead([out_features * 16, out_features * 4, out_features, self.geo_projection_dim])
         self.projection_header2 = ProjectionHead([out_features * 16, out_features * 4, out_features, self.app_projection_dim])

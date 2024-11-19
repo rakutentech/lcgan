@@ -3,20 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-# Optional for StyleGAN-v1
-class AdaIN(nn.Module):
-    def __init__(self, latent_dim, num_features):
-        super().__init__()
-        self.norm = nn.InstanceNorm2d(num_features, affine=False)
-        self.linear = EqualizedLinear(latent_dim, num_features*2, bias=1.0, lr_mul=0.01)
 
-    def forward(self, x, s):
-        h = self.linear(s)
-        h = h.view(h.size(0), h.size(1), 1, 1)
-        gamma, beta = torch.chunk(h, chunks=2, dim=1)
-        return (1 + gamma) * self.norm(x) + beta
-
-    
 class EqualizedWeight(nn.Module):
     def __init__(self, shape, lr_mul=1.0):
         super().__init__()
@@ -58,61 +45,69 @@ class EqualizedConv2d(nn.Module):
 
 
 class ModulatedConv2d(nn.Module):
-    def __init__(self, in_features, out_features, kernel_size, eps=1e-8, lr_mul=1.0):
+    def __init__(self, in_features, out_features, kernel_size, up=1, eps=1e-8, lr_mul=1.0):
         super().__init__()
+        self.in_features = in_features
         self.out_features = out_features
+        self.kernel_size = kernel_size
         self.padding = (kernel_size - 1) // 2
+        self.up = up
         self.weight = EqualizedWeight([out_features, in_features, kernel_size, kernel_size], lr_mul)
         self.bias = nn.Parameter(torch.zeros([out_features]))
         self.lr_mul = lr_mul
         self.eps = eps
 
     def forward(self, x, s):
-        b, c, h, w = x.shape
-        s = s[:, None, :, None, None]
-        weight = self.weight()[None, :, :, :, :]
-        weight = weight * s
+        b, c, h, w = x.shape  # x: [batch_size, in_features, height, width]
+        s = s[:, None, :, None, None]  # s: [batch_size, 1, in_features, 1, 1]
+        weight = self.weight().unsqueeze(0)  # weight: [1, out_features, in_features, kernel_size, kernel_size]
+        weight = weight * s  # weight: [batch_size, out_features, in_features, kernel_size, kernel_size]
+        
+        # Normalize the weights
         sigma_inv = torch.rsqrt((weight ** 2).sum(dim=(2, 3, 4), keepdim=True) + self.eps)
-        weight = weight * sigma_inv
-        x = x.reshape(1, -1, h, w)
-        _, _, *ws = weight.shape
-        weight = weight.reshape(b * self.out_features, *ws)
-        x = F.conv2d(x, weight, padding=self.padding, groups=b)
-        x = x.reshape(b, self.out_features, h, w)
+        weight = weight * sigma_inv  # weight: [batch_size, out_features, in_features, kernel_size, kernel_size]
+        
+        # Reshape input for grouped convolution
+        x = x.reshape(1, b * c, h, w)  # x: [1, batch_size * in_features, height, width]
+        weight = weight.reshape(b * self.out_features, self.in_features, self.kernel_size, self.kernel_size)
+        if self.up > 1:
+            # For upsampling, use conv_transpose2d
+            weight = weight.reshape(b, self.out_features, self.in_features, self.kernel_size, self.kernel_size)
+            weight = weight.transpose(1, 2)
+            weight = weight.reshape(b * self.in_features, self.out_features, self.kernel_size, self.kernel_size)
+            x = F.conv_transpose2d(x, weight, padding=self.padding, stride=self.up, output_padding=1, groups=b)
+            _, _, new_h, new_w = x.shape
+            x = x.reshape(b, self.out_features, new_h, new_w)
+        else:
+            # For regular convolution
+            x = F.conv2d(x, weight, padding=self.padding, groups=b)
+            x = x.reshape(b, self.out_features, h, w)
         x = x + self.bias.view(1, -1, 1, 1) * self.lr_mul
         return x
 
 
 class SynthesisLayer(nn.Module):
-    def __init__(self, in_features, out_features, latent_dim, resolution, kernel_size=3, lr_mul=1.0, use_noise=False, legacy_norm=False):
+    def __init__(self, in_features, out_features, latent_dim, resolution, kernel_size=3, up=1, lr_mul=1.0, use_noise=False):
         super().__init__()
         self.latent_dim = latent_dim
+        self.up = up
         self.resolution = resolution
         self.use_noise = use_noise
-        self.legacy_norm = legacy_norm
-        if self.legacy_norm:
-            self.adain = AdaIN(self.latent_dim, in_features)
-            self.conv = EqualizedConv2d(in_features, out_features, kernel_size, lr_mul=1.0)
-        else:
-            self.linear = EqualizedLinear(self.latent_dim, in_features, bias=1.0, lr_mul=1.0)
-            self.modulated_conv = ModulatedConv2d(in_features, out_features, kernel_size, lr_mul=1.0)
-            
+        self.linear = EqualizedLinear(self.latent_dim, in_features, bias=1.0, lr_mul=1.0)
+        self.modulated_conv = ModulatedConv2d(in_features, out_features, kernel_size, up=self.up, lr_mul=1.0)
+        self.noise_gain = 0.01
         if self.use_noise:
             self.noise_strength = nn.Parameter(torch.zeros([]))
             self.register_buffer("noise_const", torch.randn([self.resolution, self.resolution]))
 
     def forward(self, x, latent):
         # Convolution with demodulation
-        if self.legacy_norm:
-            x = self.adain(x, latent)
-            x = self.conv(x)
-        else:
-            s = self.linear(latent)
-            x = self.modulated_conv(x, s)
+        s = self.linear(latent)
+        x = self.modulated_conv(x, s)
         # Noise addition
         if self.use_noise:
             noise = self.noise_const * self.noise_strength
-            x = x + noise
+            x = x + noise * self.noise_gain
         return x
 
 
@@ -122,10 +117,10 @@ class SynthesisBlock(nn.Module):
         self.resolution = resolution
         self.use_noise = use_noise
         self.max_flow_scale = max_flow_scale
-        self.modulated_conv0 = SynthesisLayer(in_features, out_features, a_latent_dim, resolution, use_noise=self.use_noise)
-        self.modulated_conv1 = SynthesisLayer(out_features, out_features, a_latent_dim, resolution, use_noise=self.use_noise)
+        self.modulated_conv0 = SynthesisLayer(in_features, out_features, a_latent_dim, resolution, up=2, use_noise=self.use_noise)
+        self.modulated_conv1 = SynthesisLayer(out_features, out_features, a_latent_dim, resolution, up=1, use_noise=self.use_noise)
         self.skip_layer = EqualizedConv2d(in_features, out_features, kernel_size=1, no_bias=True, lr_mul=1.0)
-        self.flow_layer = SynthesisLayer(in_features, 2, g_latent_dim, resolution, use_noise=False)
+        self.flow_layer = SynthesisLayer(in_features, 2, g_latent_dim, resolution, up=2, use_noise=False)
         self.gain = np.sqrt(2)
         self.skip_gain = np.sqrt(0.5)
         
@@ -144,23 +139,26 @@ class SynthesisBlock(nn.Module):
 
         # convolution operations
         skip = self.skip_layer(x) * self.skip_gain
-        skip = F.interpolate(skip, scale_factor=2, mode='bilinear')
-                
-        x = F.interpolate(x, scale_factor=2, mode='bilinear')
+        skip = F.interpolate(skip, scale_factor=2, mode='nearest')
+        skip = F.avg_pool2d(skip, kernel_size=3, stride=1, padding=1)
+        
         flowfield = self.flow_layer(x, next(g_iter))
+        flowfield = F.avg_pool2d(flowfield, kernel_size=3, stride=1, padding=1)
         flowfield = torch.tanh(flowfield)
-
+        
         x = self.modulated_conv0(x, next(a_iter))
+        x = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
         x = F.leaky_relu(x, 0.2) * self.gain
+        
         x = self.modulated_conv1(x, next(a_iter))
         x = F.leaky_relu(x, 0.2)
         x = skip.add_(x)
-        
+
         # feature warping
         b, c, h, w = x.size()
         coordinates = self.get_coordinates(b, h, w, x.device).to(dtype=torch.float32, device=x.device)
         correspondence_map = coordinates + flowfield.to(dtype=torch.float32, device=x.device) * self.max_flow_scale
-        x = F.grid_sample(x, correspondence_map.permute(0, 2, 3, 1), mode='bilinear')
+        x = F.grid_sample(x, correspondence_map.permute(0, 2, 3, 1), mode='bicubic')
         return x
 
 
@@ -178,26 +176,35 @@ class ToRGBBlock(nn.Module):
         x = F.leaky_relu(x, 0.2)
         x = self.modulated_conv1(x, next(a_iter))
         return x
-    
+
 
 class DiscriminatorBlock(nn.Module):
-    def __init__(self, in_features, out_features):
+    def __init__(self, in_features, out_features, skip=False):
         super().__init__()
         self.conv0 = EqualizedConv2d(in_features, in_features, kernel_size=3, lr_mul=1.0)
         self.conv1 = EqualizedConv2d(in_features, out_features, kernel_size=3, stride=2, lr_mul=1.0)
-        self.skip_layer = EqualizedConv2d(in_features, out_features, kernel_size=1, no_bias=True, lr_mul=1.0)
-        self.gain = np.sqrt(2)
-        self.skip_gain = np.sqrt(0.5)
+        self.skip = skip
+        if self.skip:
+            self.skip_layer = EqualizedConv2d(in_features, out_features, kernel_size=1, no_bias=True, lr_mul=1.0)
+            self.gain = np.sqrt(2)
+            self.skip_gain = np.sqrt(0.5)
 
     def forward(self, x):
-        skip = F.avg_pool2d(x, kernel_size=3, stride=2, padding=1)
-        skip = self.skip_layer(skip) * self.skip_gain
-        x = self.conv0(x)
-        x = F.leaky_relu(x, 0.2) * self.gain
-        x = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
-        x = self.conv1(x)
-        x = F.leaky_relu(x, 0.2)
-        x = skip.add_(x)
+        if self.skip:
+            skip = F.avg_pool2d(x, kernel_size=3, stride=2, padding=1)
+            skip = self.skip_layer(skip) * self.skip_gain
+            x = self.conv0(x)
+            x = F.leaky_relu(x, 0.2) * self.gain
+            x = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
+            x = self.conv1(x)
+            x = F.leaky_relu(x, 0.2)
+            x = skip.add_(x)
+        else:
+            x = self.conv0(x)
+            x = F.leaky_relu(x, 0.2)
+            x = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
+            x = self.conv1(x)
+            x = F.leaky_relu(x, 0.2)
         return x
 
 
@@ -229,23 +236,23 @@ class MinibatchStdLayer(nn.Module):
         G = torch.min(torch.as_tensor(self.group_size), torch.as_tensor(N)) if self.group_size is not None else N
         F = self.num_channels
         c = C // F
-        y = x.reshape(G, -1, F, c, H, W)    # [GnFcHW] Split minibatch N into n groups of size G, and channels C into F groups of size c.
-        y = y - y.mean(dim=0)               # [GnFcHW] Subtract mean over group.
-        y = y.square().mean(dim=0)          # [nFcHW]  Calc variance over group.
-        y = (y + 1e-8).sqrt()               # [nFcHW]  Calc stddev over group.
-        y = y.mean(dim=[2, 3, 4])           # [nF]     Take average over channels and pixels.
-        y = y.reshape(-1, F, 1, 1)          # [nF11]   Add missing dimensions.
-        y = y.repeat(G, 1, H, W)            # [NFHW]   Replicate over group and pixels.
-        x = torch.cat([x, y], dim=1)        # [NCHW]   Append to input as new channels.
+        y = x.reshape(G, -1, F, c, H, W)
+        y = y - y.mean(dim=0)
+        y = y.square().mean(dim=0)
+        y = (y + 1e-8).sqrt()
+        y = y.mean(dim=[2, 3, 4])
+        y = y.reshape(-1, F, 1, 1)
+        y = y.repeat(G, 1, H, W)
+        x = torch.cat([x, y], dim=1)
         return x
 
 
 class MappingNetwork(nn.Module):
     def __init__(self, channels_list, lr_mul=0.01):
         super().__init__()
-        self.eps = 1e-8
+        self.eps = 1e-6
         self.matrix_size = channels_list[0]
-        self.diagonal_params = nn.Parameter(torch.randn([self.matrix_size]))    # diagonal elements
+        self.diagonal_params = nn.Parameter(torch.ones([self.matrix_size]))    # diagonal elements
         self.basis_params = nn.Parameter(torch.randn([self.matrix_size, self.matrix_size]))   # off-diagonal elements
         self.num_layers = len(channels_list) - 1
         mlp = []
