@@ -46,15 +46,15 @@ Training on AFHQ-V2 512x512 resolution using 4 H100 GPUs
     
 Training on FFHQ 256x256 resolution using 4 H100 GPUs
 
-    python main.py --phase train --model_name ffhq_256 --dataset_path DATASET_PATH --epoch 900000 --batch_size 32 --freezeD_start 500000 --freezeD_layer 4 --img_resolution 256 --g_lr 0.002 --d_lr 0.002 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
+    python main.py --phase train --model_name ffhq_256 --dataset_path DATASET_PATH --epoch 900000 --batch_size 32 --freezeD_start 500000 --freezeD_layer 3 --img_resolution 256 --g_lr 0.002 --d_lr 0.002 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
     
 Training on Celeba-HQ 256x256 resolution using 4 H100 GPUs
 
-    python main.py --phase train --model_name celeba_hq_256 --dataset_path DATASET_PATH --epoch 700000 --batch_size 32 --freezeD_start 300000 --freezeD_layer 4 --img_resolution 256 --g_lr 0.002 --d_lr 0.002 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
+    python main.py --phase train --model_name celeba_hq_256 --dataset_path DATASET_PATH --epoch 700000 --batch_size 32 --freezeD_start 300000 --freezeD_layer 3 --img_resolution 256 --g_lr 0.002 --d_lr 0.002 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
 
 Training on AFHQ-V2 256x256 resolution using 4 H100 GPUs
 
-    python main.py --phase train --model_name afhq_v2_256 --dataset_path DATASET_PATH --epoch 450000 --batch_size 32 --freezeD_start 150000 --freezeD_layer 4 --img_resolution 256 --g_lr 0.002 --d_lr 0.002 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
+    python main.py --phase train --model_name afhq_v2_256 --dataset_path DATASET_PATH --epoch 450000 --batch_size 32 --freezeD_start 150000 --freezeD_layer 3 --img_resolution 256 --g_lr 0.002 --d_lr 0.002 --tau 0.05 --l_adv 1.0 --l_aux 0.5 --l_r1 10.0 --l_s 1e-07
 
 # Result videos
 We explore the controllability of our image generation model by systematically varying the value of a single dimension across a predefined range. Specifically, we adjust this dimension from -2 to 2, allowing for a comprehensive examination of how changes in this parameter influence the characteristics of the generated images. This approach enables us to assess the model's controllability and understand how different input dimensions contribute to the overall image generation process.
