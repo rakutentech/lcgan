@@ -97,3 +97,15 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
         gan_worker.load_model()
         dist.barrier(gan_worker.group)
         gan_worker.fake_image_generation(num_images=args.num_fakes)
+
+    elif args.phase == 'video_generation':
+        gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
+        gan_worker.load_model()
+        dist.barrier(gan_worker.group)
+        ctrl_dim = args.ctrl_dim
+        if ctrl_dim == -1:
+            for i in range(args.geo_noise_dim+args.app_noise_dim):
+                gan_worker.demo_generation(controlled_dim=i, num_video=args.num_videos)
+        else:
+            gan_worker.demo_generation(controlled_dim=ctrl_dim, num_video=args.num_videos)
+                

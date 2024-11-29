@@ -52,7 +52,8 @@ def parse_args():
     parser.add_argument('--sample_dir', type=str, default='samples', help='Directory name to save the training results')
 
     parser.add_argument('--num_fakes', type=int, default=10, help='Number of images to generate')
-    parser.add_argument('--ctrl_dim', type=int, default=0, help='control dimension')
+    parser.add_argument('--ctrl_dim', type=int, default=-1, help='control dimension')
+    parser.add_argument('--num_videos', type=int, default=10, help='Number of videos to generate')
 
     parser.add_argument("--save_interval", type=int, default=5000, help="save interval")
     parser.add_argument("--print_interval", type=int, default=100, help="print interval")
