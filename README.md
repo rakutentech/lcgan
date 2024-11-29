@@ -60,6 +60,12 @@ Training on AFHQ-V2 256x256 resolution using 4 H100 GPUs
 
     python main.py --phase fid_eval --model_name [MODEL_NAME] --batch_size 8 --img_resolution [IMG_RESOLUTION]
 
+# Fake image generation
+
+    python main.py --phase fake_image_generation --model_name [MODEL_NAME] --batch_size 1 --img_resolution [IMG_RESOLUTION]
+
+The output images will be generated and saved in the 'fakes' subfolder of [MODEL_NAME].
+
 # Result videos
 We explore the controllability of our image generation model by systematically varying the value of a single dimension across a predefined range. Specifically, we adjust this dimension from -2 to 2, allowing for a comprehensive examination of how changes in this parameter influence the characteristics of the generated images. This approach enables us to assess the model's controllability and understand how different input dimensions contribute to the overall image generation process.
 
