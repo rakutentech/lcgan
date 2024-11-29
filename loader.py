@@ -88,7 +88,7 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
         gan_worker.load_model()
         dist.barrier(gan_worker.group)
         fid_value = gan_worker.fid_evaluate()
-        file = open(os.path.join(args.model_name, 'fid.txt', "w")
+        file = open(os.path.join(args.model_name, 'fid.txt', "w"))
         file.write("FID:{fid} \n".format(fid=fid_value))
         file.close()
 

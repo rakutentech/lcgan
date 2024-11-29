@@ -75,7 +75,6 @@ Demo videos can be generated using the following command, where [CONTROL_DIM] sp
     python main.py --phase video_generation --model_name [MODEL_NAME] --ctrl_dim [CONTROL_DIM] --num_videos [NUM_VIDEOS] --batch_size 1 --img_resolution [IMG_RESOLUTION]
     
 
-
 ## Training on Celeba-HQ 1024x1024
 <div style="text-align: center;">
     <img src="assets/celeba_hq/yaw.gif" alt="Yaw Demo" width="256" height="256" style="margin: 10px;">
