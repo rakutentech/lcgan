@@ -430,7 +430,7 @@ class WORKER(object):
             geometry_code = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
             appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
             with torch.no_grad():
-                fake_images = self.generator_ema(geometry_code*0, appearance_code, self.args.w_psi)
+                fake_images = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
             
             fake_images = ((fake_images + 1) / 2).clamp(0.0, 1.0)
             folder_path = os.path.join(self.args.model_name, 'fakes')
