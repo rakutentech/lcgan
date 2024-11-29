@@ -39,14 +39,9 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
                 epoch = int(file.read().strip()) + 1
                 print("restart training from:", epoch)
             gan_worker.load_model()
-            if epoch > args.freezeD_start:
-                gan_worker.drop_learning_rate()
-                print("drop_learning_rate from here")            
             dist.barrier(gan_worker.group)
         
         while epoch <= args.epoch:
-            if epoch == args.freezeD_start:
-                gan_worker.drop_learning_rate()
             gan_worker.requires_grad(gan_worker.generator, True)
             gan_worker.requires_grad(gan_worker.discriminator, False)
             g_loss = gan_worker.train_generator(epoch)
@@ -83,20 +78,7 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
                     with open(epoch_file_path, 'w') as f:
                         f.write(str(epoch))                              
                 dist.barrier(gan_worker.group)
-
-            if epoch % args.test_interval == 0:
-                if epoch > 0:
-                    fid_value = gan_worker.fid_evaluate()
-                if local_rank == 0:
-                    if epoch == 0:
-                        file = open(os.path.join(args.model_name, 'fid.txt'), "w")
-                    else:
-                        gan_worker.save_best_model()
-                        file = open(os.path.join(args.model_name, 'fid.txt'), "a")
-                        file.write("epoch:{loop}, FID:{fid} \n".format(loop=epoch, fid=fid_value))
-                    file.close()
-                dist.barrier(gan_worker.group)
-                                
+                
             epoch += 1
 
     elif args.phase == 'fid_eval':
@@ -106,7 +88,7 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
         gan_worker.load_model()
         dist.barrier(gan_worker.group)
         fid_value = gan_worker.fid_evaluate()
-        file = open(os.path.join(args.model_name, 'fid_({w_psi}).txt'.format(w_psi=args.w_psi)), "w")
+        file = open(os.path.join(args.model_name, 'fid.txt', "w")
         file.write("FID:{fid} \n".format(fid=fid_value))
         file.close()
 
@@ -114,4 +96,4 @@ def load_worker(local_rank, args, gpus_per_node, port_number):
         gan_worker = worker.WORKER(args, local_rank, gpus_per_node)
         gan_worker.load_model()
         dist.barrier(gan_worker.group)
-        gan_worker.fake_image_generation(num_images=100)
+        gan_worker.fake_image_generation(num_images=args.num_fakes)

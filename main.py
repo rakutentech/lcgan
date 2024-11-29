@@ -52,14 +52,11 @@ def parse_args():
     parser.add_argument('--sample_dir', type=str, default='samples', help='Directory name to save the training results')
 
     parser.add_argument('--num_fakes', type=int, default=10, help='Number of images to generate')
-    parser.add_argument('--num_cols', type=int, default=4, help='Number of images to generate at each batch')
     parser.add_argument('--ctrl_dim', type=int, default=0, help='control dimension')
 
     parser.add_argument("--save_interval", type=int, default=5000, help="save interval")
     parser.add_argument("--print_interval", type=int, default=100, help="print interval")
     parser.add_argument('--show_interval', type=int, default=1000, help='interval of showing images in training')
-    parser.add_argument('--test_interval', type=int, default=10000, help='interval of showing images in fid test')
-
     return check_args(parser.parse_args())
 
 

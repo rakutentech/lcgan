@@ -79,6 +79,12 @@ class WORKER(object):
             print(discriminator)
             print(generator)
 
+        g_parameters, d_parameters = [], []
+        for g_name, g_param in generator.named_parameters():
+            g_parameters.append(g_param)
+        for d_name, d_param in discriminator.named_parameters():
+            d_parameters.append(d_param)
+
         generator = DistributedDataParallel(generator,
                                             device_ids=[self.local_rank],
                                             broadcast_buffers=False,
@@ -88,9 +94,6 @@ class WORKER(object):
                                                 device_ids=[self.local_rank],
                                                 broadcast_buffers=False,
                                                 find_unused_parameters=True)
-
-        g_parameters = list(generator.module.parameters())
-        d_parameters = list(discriminator.module.parameters())
 
         betas_g = [self.args.beta1, self.args.beta2]
         betas_d = [self.args.beta1, self.args.beta2]
@@ -120,33 +123,13 @@ class WORKER(object):
             self.train_iter = iter(self.train_dataloader)
             image, geometry_change, appearance_change = next(self.train_iter)
         return image, geometry_change, appearance_change
-                    
+
     def freeze_discriminator(self, freeze_up_to_index=5):
-        for d_name, d_param in self.discriminator.module.shared_model.named_parameters():
-            x = int(d_name.split('.')[0])
-            if x < freeze_up_to_index + 2:
-                d_param.requires_grad = False
+        for i, (name, layer) in enumerate(self.discriminator.module.shared_model.named_children()):
+            if i < freeze_up_to_index + 2:
+                for param in layer.parameters():
+                    param.requires_grad = False
 
-    def drop_learning_rate(self):
-        new_g_lr = self.args.g_lr * 1.0
-        new_d_lr = self.args.d_lr * 1.0
-        betas_g = [self.args.beta1, self.args.beta2]
-        betas_d = [self.args.beta1, self.args.beta2]
-        eps_ = 1e-8
-
-        g_parameters = list(self.generator.module.parameters())
-        d_parameters = list(self.discriminator.module.parameters())
-
-        self.g_optimizer = torch.optim.Adam(params=g_parameters,
-                                            lr=new_g_lr,
-                                            betas=betas_g,
-                                            eps=eps_)
-
-        self.d_optimizer = torch.optim.Adam(params=d_parameters,
-                                            lr=new_d_lr,
-                                            betas=betas_d,
-                                            eps=eps_)
-        
     def requires_grad(self, model, flag=True):
         for p in model.parameters():
             p.requires_grad = flag
@@ -441,27 +424,26 @@ class WORKER(object):
 
         return fid_value
 
-
     def fake_image_generation(self, num_images=50):
         count = 0
         for ns in tqdm(range(num_images), disable=self.local_rank != 0):
             geometry_code = torch.randn(self.local_batch_size, self.args.geo_noise_dim, device=self.local_rank)
             appearance_code = torch.randn(self.local_batch_size, self.args.app_noise_dim, device=self.local_rank)
             with torch.no_grad():
-                fake_images = self.generator_ema(geometry_code, appearance_code, self.args.w_psi)
+                fake_images = self.generator_ema(geometry_code*0, appearance_code, self.args.w_psi)
             
             fake_images = ((fake_images + 1) / 2).clamp(0.0, 1.0)
             folder_path = os.path.join(self.args.model_name, 'fakes')
+            if not os.path.exists(folder_path):
+                os.makedirs(folder_path)            
             save_path = os.path.join(folder_path, "{num:04d}_images.jpg".format(num=count))
             save_image(fake_images, save_path, padding=0, nrow=1)
             count = count + 1
             
-
     def check_folder(self, test_dir):
         if not os.path.exists(test_dir):
             os.makedirs(test_dir)
-
-                    
+        
     def demo_generation(self, controlled_dim=0, num_video=1, num_explore=30, num_repeat=1):
         folder_path = os.path.join(self.args.model_name, 'demo')
         self.check_folder(folder_path)
