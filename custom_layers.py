@@ -95,8 +95,8 @@ class SynthesisLayer(nn.Module):
         self.use_noise = use_noise
         self.linear = EqualizedLinear(self.latent_dim, in_features, bias=1.0, lr_mul=1.0)
         self.modulated_conv = ModulatedConv2d(in_features, out_features, kernel_size, up=self.up, lr_mul=1.0)
+        self.noise_gain = 0.01
         if self.use_noise:
-            self.noise_gain = 0.01
             self.noise_strength = nn.Parameter(torch.zeros([]))
             self.register_buffer("noise_const", torch.randn([self.resolution, self.resolution]))
 

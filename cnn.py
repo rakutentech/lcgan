@@ -80,11 +80,11 @@ class Generator(torch.nn.Module):
             out_features = self.base_nf * 2 ** (self.num_blocks - i - 1)
             out_features = min(out_features, self.max_nf)
             out_resolution = 2 ** (self.log_first_block_resolution + 1 + i)
-            blocks += [SynthesisBlock(in_features, out_features, self.geo_latent_dim, self.app_latent_dim, out_resolution, self.max_flow_scale, use_noise=False)]
+            blocks += [SynthesisBlock(in_features, out_features, self.geo_latent_dim, self.app_latent_dim, out_resolution, self.max_flow_scale, use_noise=True)]
             in_features = out_features
             
         self.model = nn.Sequential(*blocks)
-        self.rgb_layer = ToRGBBlock(out_features, 3, self.app_latent_dim, out_resolution, use_noise=False)
+        self.rgb_layer = ToRGBBlock(out_features, 3, self.app_latent_dim, out_resolution, use_noise=True)
                 
     def forward(self, rand_noise1, rand_noise2, w_psi=-1.0):
         batch_size = rand_noise1.size(0)
