@@ -153,7 +153,7 @@ class WORKER(object):
             real_logit, _, _ = self.discriminator(image, False)
             real_label = torch.ones(self.local_batch_size, 1, device=self.local_rank)
             fake_label = torch.zeros(self.local_batch_size, 1, device=self.local_rank)
-            real_loss = F.binary_cross_entropy_with_logits(real_logit, real_label) * 0.95
+            real_loss = F.binary_cross_entropy_with_logits(real_logit, real_label)
             fake_loss = F.binary_cross_entropy_with_logits(fake_logit, fake_label)
             d_loss = real_loss + fake_loss
             if epoch % 8 == 1:
@@ -163,7 +163,7 @@ class WORKER(object):
             real_logit, geometry_feat, appearance_feat = self.discriminator(image, True)
             _, geometry_positive, appearance_negative = self.discriminator(geometry_change, True)
             _, geometry_negative, appearance_positive = self.discriminator(appearance_change, True)
-            real_label = torch.ones(self.local_batch_size, 1, device=self.local_rank) * 0.95
+            real_label = torch.ones(self.local_batch_size, 1, device=self.local_rank)
             fake_label = torch.zeros(self.local_batch_size, 1, device=self.local_rank)
             real_loss = F.binary_cross_entropy_with_logits(real_logit, real_label)
             fake_loss = F.binary_cross_entropy_with_logits(fake_logit, fake_label)            
