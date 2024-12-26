@@ -27,8 +27,8 @@ def parse_args():
     parser.add_argument('--app_noise_dim', type=int, default=64, help='length of noise dimension')
     parser.add_argument('--geo_projection_dim', type=int, default=256, help='length of projected dimension')
     parser.add_argument('--app_projection_dim', type=int, default=256, help='length of projected dimension')
-    parser.add_argument('--geo_latent_dim', type=int, default=512, help='length of intermediate latent dimension')
-    parser.add_argument('--app_latent_dim', type=int, default=64, help='length of intermediate latent dimension')
+    parser.add_argument('--geo_latent_dim', type=int, default=64, help='length of intermediate latent dimension')
+    parser.add_argument('--app_latent_dim', type=int, default=512, help='length of intermediate latent dimension')
 
     parser.add_argument('--epoch', type=int, default=100000, help='The number of epochs to run')
     parser.add_argument('--batch_size', type=int, default=32, help='The batch size')
