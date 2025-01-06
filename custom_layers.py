@@ -132,6 +132,10 @@ class SynthesisBlock(nn.Module):
         norm_grid_x = (2 * grid_x / (w - 1)) - 1
         coordinates = torch.stack((norm_grid_x, norm_grid_y)).unsqueeze(0).repeat([b, 1, 1, 1])        
         return coordinates
+
+    def box_filter(self, x):
+        x = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
+        return x
     
     def forward(self, x, g_latent, a_latent):
         g_iter = iter(g_latent.unbind(dim=1))
@@ -140,14 +144,14 @@ class SynthesisBlock(nn.Module):
         # convolution operations
         skip = self.skip_layer(x) * self.skip_gain
         skip = F.interpolate(skip, scale_factor=2, mode='nearest')
-        skip = F.avg_pool2d(skip, kernel_size=3, stride=1, padding=1)
+        skip = self.box_filter(skip)
         
         flowfield = self.flow_layer(x, next(g_iter))
-        flowfield = F.avg_pool2d(flowfield, kernel_size=3, stride=1, padding=1)
+        flowfield = self.box_filter(flowfield)
         flowfield = torch.tanh(flowfield)
         
         x = self.modulated_conv0(x, next(a_iter))
-        x = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
+        x = self.box_filter(x)
         x = F.leaky_relu(x, 0.2) * self.gain
         
         x = self.modulated_conv1(x, next(a_iter))
@@ -189,20 +193,25 @@ class DiscriminatorBlock(nn.Module):
             self.gain = np.sqrt(2)
             self.skip_gain = np.sqrt(0.5)
 
+    def box_filter(self, x):
+        x = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
+        return x
+
     def forward(self, x):
         if self.skip:
-            skip = F.avg_pool2d(x, kernel_size=3, stride=2, padding=1)
+            skip = F.avg_pool2d(x, kernel_size=2, stride=2, padding=0)
             skip = self.skip_layer(skip) * self.skip_gain
             x = self.conv0(x)
             x = F.leaky_relu(x, 0.2) * self.gain
-            x = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
+            x = self.box_filter(x)
             x = self.conv1(x)
             x = F.leaky_relu(x, 0.2)
             x = skip.add_(x)
+            
         else:
             x = self.conv0(x)
             x = F.leaky_relu(x, 0.2)
-            x = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
+            x = self.box_filter(x)
             x = self.conv1(x)
             x = F.leaky_relu(x, 0.2)
         return x
@@ -252,7 +261,7 @@ class MappingNetwork(nn.Module):
         super().__init__()
         self.eps = 1e-6
         self.matrix_size = channels_list[0]
-        self.diagonal_params = nn.Parameter(torch.ones([self.matrix_size]))    # diagonal elements
+        self.diagonal_params = nn.Parameter(torch.randn([self.matrix_size]))    # diagonal elements
         self.basis_params = nn.Parameter(torch.randn([self.matrix_size, self.matrix_size]))   # off-diagonal elements
         self.num_layers = len(channels_list) - 1
         mlp = []
